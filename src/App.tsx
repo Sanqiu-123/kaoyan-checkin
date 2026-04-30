@@ -14,6 +14,7 @@ import {
   createInitialState,
   ensureTodayRecord,
   extractWeakPointsFromRecord,
+  generateDailyRecord,
   generateSuggestion
 } from "@/lib/studyData";
 import { deletePersistedState, loadPersistedState, parseBackup, savePersistedState, serializeBackup } from "@/lib/storage";
@@ -34,9 +35,10 @@ export default function App() {
   const [activePage, setActivePage] = useState<PageKey>("dashboard");
   const [cloudUserEmail, setCloudUserEmail] = useState<string | null>(null);
   const [cloudBusy, setCloudBusy] = useState(false);
+  const [checkinDate, setCheckinDate] = useState(todayKey());
   const autoSyncFingerprintRef = useRef("");
   const today = todayKey();
-  const todayRecord = useMemo(() => state.records[today], [state.records, today]);
+  const checkinRecord = useMemo(() => state.records[checkinDate], [state.records, checkinDate]);
   const syncFingerprint = useMemo(
     () =>
       JSON.stringify({
@@ -105,12 +107,25 @@ export default function App() {
     }));
   }
 
-  function saveCheckin() {
-    const record = state.records[today];
+  function ensureRecordForDate(date: string) {
+    setState((current) => {
+      if (current.records[date]) return current;
+      return {
+        ...current,
+        records: {
+          ...current.records,
+          [date]: generateDailyRecord(date, current)
+        }
+      };
+    });
+  }
+
+  function saveCheckin(date = checkinDate) {
+    const record = state.records[date];
     if (!record) return;
     const suggestion = generateSuggestion(record);
     setState((current) => {
-      const currentRecord = current.records[today];
+      const currentRecord = current.records[date];
       const firstSave = !currentRecord.savedAt;
       const savedRecord: DailyRecord = {
         ...currentRecord,
@@ -124,12 +139,12 @@ export default function App() {
         progress: firstSave ? applyProgressFromRecord(current.progress, savedRecord) : current.progress,
         records: {
           ...current.records,
-          [today]: savedRecord
+          [date]: savedRecord
         },
         adjustmentLogs: [
           {
             id: uid("log"),
-            date: today,
+            date,
             message: suggestion,
             createdAt: new Date().toISOString()
           },
@@ -310,8 +325,18 @@ export default function App() {
       onToggleDark={() => updateSettings({ ...state.settings, darkMode: !state.settings.darkMode })}
     >
       {activePage === "dashboard" && <Dashboard state={state} onNavigate={setActivePage} />}
-      {activePage === "checkin" && todayRecord && (
-        <CheckinPage record={todayRecord} onChange={(record) => updateRecord(today, record)} onSave={saveCheckin} />
+      {activePage === "checkin" && (
+        <CheckinPage
+          record={checkinRecord}
+          selectedDate={checkinDate}
+          onDateChange={(date) => {
+            setCheckinDate(date);
+            ensureRecordForDate(date);
+          }}
+          onCreateRecord={() => ensureRecordForDate(checkinDate)}
+          onChange={(record) => updateRecord(checkinDate, record)}
+          onSave={() => saveCheckin(checkinDate)}
+        />
       )}
       {activePage === "history" && <HistoryPage state={state} />}
       {activePage === "progress" && <ProgressPage progress={state.progress} onChange={updateProgress} />}

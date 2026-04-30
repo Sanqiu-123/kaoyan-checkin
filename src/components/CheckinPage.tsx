@@ -12,7 +12,10 @@ import { getCompletionRate, getSubjectStats, subjectMeta } from "@/lib/studyData
 import { cn, percent, uid } from "@/lib/utils";
 
 interface CheckinPageProps {
-  record: DailyRecord;
+  record?: DailyRecord;
+  selectedDate: string;
+  onDateChange: (date: string) => void;
+  onCreateRecord: () => void;
   onChange: (record: DailyRecord) => void;
   onSave: () => void;
 }
@@ -20,12 +23,13 @@ interface CheckinPageProps {
 const subjectOptions: Subject[] = ["math", "cs408", "english", "review"];
 const qualityOptions: Quality[] = ["", "很好", "一般", "较差"];
 
-export function CheckinPage({ record, onChange, onSave }: CheckinPageProps) {
+export function CheckinPage({ record, selectedDate, onDateChange, onCreateRecord, onChange, onSave }: CheckinPageProps) {
   const completionRate = getCompletionRate(record);
   const stats = getSubjectStats(record);
-  const sortedTasks = [...record.tasks].sort((a, b) => a.time.localeCompare(b.time));
+  const sortedTasks = [...(record?.tasks ?? [])].sort((a, b) => a.time.localeCompare(b.time));
 
   function updateTask(taskId: string, patch: Partial<StudyTask>) {
+    if (!record) return;
     onChange({
       ...record,
       tasks: record.tasks.map((task) => (task.id === taskId ? { ...task, ...patch } : task)),
@@ -34,6 +38,7 @@ export function CheckinPage({ record, onChange, onSave }: CheckinPageProps) {
   }
 
   function deleteTask(taskId: string) {
+    if (!record) return;
     onChange({
       ...record,
       tasks: record.tasks.filter((task) => task.id !== taskId),
@@ -42,6 +47,7 @@ export function CheckinPage({ record, onChange, onSave }: CheckinPageProps) {
   }
 
   function addTask() {
+    if (!record) return;
     const task: StudyTask = {
       id: uid("task"),
       date: record.date,
@@ -61,15 +67,41 @@ export function CheckinPage({ record, onChange, onSave }: CheckinPageProps) {
     <div className="page-shell">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold">每日打卡</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{displayDate(record.date)}，按时间段完成今天的复习任务。</p>
+          <h2 className="text-2xl font-semibold">每日打卡 / 补打卡</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {displayDate(selectedDate)}，可补录任意一天的学习完成情况。
+          </p>
         </div>
-        <Button onClick={onSave}>
-          <Save className="h-4 w-4" />
-          保存今日打卡
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input type="date" value={selectedDate} onChange={(event) => onDateChange(event.target.value)} />
+          {record ? (
+            <Button onClick={onSave}>
+              <Save className="h-4 w-4" />
+              保存打卡
+            </Button>
+          ) : (
+            <Button onClick={onCreateRecord}>
+              <Plus className="h-4 w-4" />
+              生成该日任务
+            </Button>
+          )}
+        </div>
       </div>
 
+      {!record ? (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <p className="text-lg font-semibold">这一天还没有任务记录</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              点击“生成该日任务”后，可以补录当天完成情况并生成系统建议。
+            </p>
+            <Button className="mt-5" onClick={onCreateRecord}>
+              <Plus className="h-4 w-4" />
+              生成该日任务
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
       <div className="grid gap-4 lg:grid-cols-[0.72fr_1.28fr]">
         <div className="space-y-4">
           <Card>
@@ -203,6 +235,7 @@ export function CheckinPage({ record, onChange, onSave }: CheckinPageProps) {
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   );
 }
