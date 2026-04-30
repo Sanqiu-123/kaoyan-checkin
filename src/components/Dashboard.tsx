@@ -66,11 +66,20 @@ function MetricCard({
   );
 }
 
+function taskStartMinutes(time: string) {
+  const match = time.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return 24 * 60 + 30;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
 export function Dashboard({ state, onNavigate }: DashboardProps) {
   const today = todayKey();
   const record = state.records[today];
   const totalTasks = record?.tasks.length ?? 0;
   const completedTasks = record?.tasks.filter((task) => task.completed).length ?? 0;
+  const todayTasks = [...(record?.tasks ?? [])].sort(
+    (a, b) => taskStartMinutes(a.time) - taskStartMinutes(b.time) || a.time.localeCompare(b.time)
+  );
   const completionRate = getCompletionRate(record);
   const subjectStats = getSubjectStats(record);
   const trendData = buildTrendData(state);
@@ -251,7 +260,10 @@ export function Dashboard({ state, onNavigate }: DashboardProps) {
       <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <CardTitle>今日任务概览</CardTitle>
+            <div>
+              <CardTitle>今日任务概览</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">显示当天全部任务，共 {totalTasks} 项</p>
+            </div>
             <Button size="sm" onClick={() => onNavigate("checkin")}>
               去打卡
               <ArrowRight className="h-4 w-4" />
@@ -285,7 +297,7 @@ export function Dashboard({ state, onNavigate }: DashboardProps) {
                 ))}
             </div>
             <div className="space-y-2">
-              {record?.tasks.slice(0, 7).map((task) => (
+              {todayTasks.map((task) => (
                 <div
                   key={task.id}
                   className={`flex items-center gap-3 rounded-lg border border-border border-l-4 p-3 text-sm ${
