@@ -1,0 +1,341 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AppShell, PageKey } from "@/components/AppShell";
+import { CheckinPage } from "@/components/CheckinPage";
+import { Dashboard } from "@/components/Dashboard";
+import { HistoryPage } from "@/components/HistoryPage";
+import { ProgressPage } from "@/components/ProgressPage";
+import { SettingsPage } from "@/components/SettingsPage";
+import { StatsPage } from "@/components/StatsPage";
+import { WeakPointsPage } from "@/components/WeakPointsPage";
+import { AppState, DailyRecord, ProgressState, Settings, WeakPoint } from "@/types/study";
+import { todayKey } from "@/lib/date";
+import {
+  applyProgressFromRecord,
+  createInitialState,
+  ensureTodayRecord,
+  extractWeakPointsFromRecord,
+  generateSuggestion
+} from "@/lib/studyData";
+import { deletePersistedState, loadPersistedState, parseBackup, savePersistedState, serializeBackup } from "@/lib/storage";
+import {
+  getCloudUser,
+  hasCloudConfig,
+  pullStateFromCloud,
+  pushStateToCloud,
+  signInCloud,
+  signOutCloud,
+  signUpCloud
+} from "@/lib/cloudSync";
+import { uid } from "@/lib/utils";
+
+export default function App() {
+  const [state, setState] = useState<AppState>(() => ensureTodayRecord(createInitialState()));
+  const [hydrated, setHydrated] = useState(false);
+  const [activePage, setActivePage] = useState<PageKey>("dashboard");
+  const [cloudUserEmail, setCloudUserEmail] = useState<string | null>(null);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const autoSyncFingerprintRef = useRef("");
+  const today = todayKey();
+  const todayRecord = useMemo(() => state.records[today], [state.records, today]);
+  const syncFingerprint = useMemo(
+    () =>
+      JSON.stringify({
+        records: state.records,
+        progress: state.progress,
+        settings: state.settings,
+        adjustmentLogs: state.adjustmentLogs,
+        weakPoints: state.weakPoints
+      }),
+    [state.records, state.progress, state.settings, state.adjustmentLogs, state.weakPoints]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadPersistedState()
+      .then((persistedState) => {
+        if (cancelled) return;
+        setState(ensureTodayRecord(persistedState));
+        setHydrated(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setState(ensureTodayRecord(createInitialState()));
+        setHydrated(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    void savePersistedState(state);
+  }, [hydrated, state]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", state.settings.darkMode);
+  }, [state.settings.darkMode]);
+
+  useEffect(() => {
+    if (!hasCloudConfig) return;
+    void getCloudUser().then((user) => setCloudUserEmail(user?.email ?? null));
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || !state.cloudSync.enabled || !state.cloudSync.autoSync || !cloudUserEmail || !hasCloudConfig) return;
+    if (autoSyncFingerprintRef.current === syncFingerprint) return;
+
+    const timer = window.setTimeout(() => {
+      autoSyncFingerprintRef.current = syncFingerprint;
+      pushCloudState("auto");
+    }, 2500);
+
+    return () => window.clearTimeout(timer);
+  }, [hydrated, state.cloudSync.enabled, state.cloudSync.autoSync, cloudUserEmail, hasCloudConfig, syncFingerprint]);
+
+  function updateRecord(date: string, record: DailyRecord) {
+    setState((current) => ({
+      ...current,
+      records: {
+        ...current.records,
+        [date]: record
+      }
+    }));
+  }
+
+  function saveCheckin() {
+    const record = state.records[today];
+    if (!record) return;
+    const suggestion = generateSuggestion(record);
+    setState((current) => {
+      const currentRecord = current.records[today];
+      const firstSave = !currentRecord.savedAt;
+      const savedRecord: DailyRecord = {
+        ...currentRecord,
+        suggestion,
+        savedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      const newWeakPoints = extractWeakPointsFromRecord(savedRecord, current.weakPoints);
+      return {
+        ...current,
+        progress: firstSave ? applyProgressFromRecord(current.progress, savedRecord) : current.progress,
+        records: {
+          ...current.records,
+          [today]: savedRecord
+        },
+        adjustmentLogs: [
+          {
+            id: uid("log"),
+            date: today,
+            message: suggestion,
+            createdAt: new Date().toISOString()
+          },
+          ...current.adjustmentLogs
+        ].slice(0, 80),
+        weakPoints: [...newWeakPoints, ...current.weakPoints].slice(0, 200)
+      };
+    });
+  }
+
+  function updateProgress(progress: ProgressState) {
+    setState((current) => ({ ...current, progress }));
+  }
+
+  function updateSettings(settings: Settings) {
+    setState((current) => ({ ...current, settings }));
+  }
+
+  function updateCloudSync(patch: Partial<AppState["cloudSync"]>) {
+    setState((current) => ({
+      ...current,
+      cloudSync: {
+        ...current.cloudSync,
+        ...patch
+      }
+    }));
+  }
+
+  function updateWeakPoints(weakPoints: WeakPoint[]) {
+    setState((current) => ({ ...current, weakPoints }));
+  }
+
+  function resetState() {
+    const fresh = ensureTodayRecord(createInitialState());
+    void deletePersistedState();
+    setState(fresh);
+  }
+
+  function exportBackup() {
+    const blob = new Blob([serializeBackup(state)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `考研打卡备份-${today}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importBackup(file: File) {
+    try {
+      const importedState = ensureTodayRecord(parseBackup(await file.text()));
+      setState(importedState);
+      setHydrated(true);
+      await savePersistedState(importedState);
+      window.alert("备份导入成功，当前数据已更新。");
+    } catch {
+      window.alert("备份导入失败，请确认选择的是本系统导出的 JSON 文件。");
+    }
+  }
+
+  async function cloudSignUp(email: string, password: string) {
+    setCloudBusy(true);
+    try {
+      const user = await signUpCloud(email, password);
+      setCloudUserEmail(user?.email ?? email);
+      updateCloudSync({ enabled: true, lastError: undefined });
+      window.alert("注册成功。如果 Supabase 项目开启了邮箱验证，请先去邮箱完成验证后再登录。");
+    } catch (error) {
+      updateCloudSync({ lastError: error instanceof Error ? error.message : "注册失败" });
+      window.alert("注册失败，数据仍会继续保存在本地。");
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  async function cloudSignIn(email: string, password: string) {
+    setCloudBusy(true);
+    try {
+      const user = await signInCloud(email, password);
+      setCloudUserEmail(user?.email ?? email);
+      updateCloudSync({ enabled: true, lastError: undefined });
+      window.alert("登录成功。你可以手动上传本地数据到云端，或开启自动同步。");
+    } catch (error) {
+      updateCloudSync({ lastError: error instanceof Error ? error.message : "登录失败" });
+      window.alert("登录失败，数据仍会继续保存在本地。");
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  async function cloudSignOut() {
+    setCloudBusy(true);
+    try {
+      await signOutCloud();
+      setCloudUserEmail(null);
+      updateCloudSync({ enabled: false, autoSync: false, lastError: undefined });
+    } catch (error) {
+      updateCloudSync({ lastError: error instanceof Error ? error.message : "退出登录失败" });
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  async function pushCloudState(mode: "manual" | "auto" = "manual") {
+    if (!hasCloudConfig || !cloudUserEmail) {
+      updateCloudSync({ lastError: "尚未配置或登录 Supabase，无法同步到云端。" });
+      return;
+    }
+    setCloudBusy(mode === "manual");
+    try {
+      const syncedAt = await pushStateToCloud(state);
+      setState((current) => ({
+        ...current,
+        cloudSync: {
+          ...current.cloudSync,
+          enabled: true,
+          lastSyncedAt: syncedAt,
+          lastError: undefined
+        }
+      }));
+      if (mode === "manual") window.alert("已上传到云端。本地数据仍会保留一份。");
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        cloudSync: {
+          ...current.cloudSync,
+          lastError: error instanceof Error ? error.message : "云同步失败，本地数据已保留。"
+        }
+      }));
+      if (mode === "manual") window.alert("云端同步失败，但本地数据已经保存，不会丢失。");
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  async function pullCloudState() {
+    if (!hasCloudConfig || !cloudUserEmail) {
+      updateCloudSync({ lastError: "尚未配置或登录 Supabase，无法从云端拉取。" });
+      return;
+    }
+    const ok = window.confirm("从云端拉取会用云端快照覆盖当前浏览器数据。建议先导出本地备份。继续吗？");
+    if (!ok) return;
+
+    setCloudBusy(true);
+    try {
+      const result = await pullStateFromCloud();
+      if (!result) {
+        window.alert("云端还没有快照。你可以先点击“上传本地到云端”。");
+        return;
+      }
+      const pulledAt = new Date().toISOString();
+      const nextState = ensureTodayRecord({
+        ...result.state,
+        cloudSync: {
+          ...result.state.cloudSync,
+          enabled: true,
+          autoSync: state.cloudSync.autoSync,
+          lastPulledAt: pulledAt,
+          lastError: undefined
+        }
+      });
+      setState(nextState);
+      await savePersistedState(nextState);
+      window.alert("已从云端恢复数据，并同步保存到本地。");
+    } catch (error) {
+      updateCloudSync({ lastError: error instanceof Error ? error.message : "云端拉取失败，本地数据未改变。" });
+      window.alert("云端拉取失败，本地数据没有被覆盖。");
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  return (
+    <AppShell
+      activePage={activePage}
+      darkMode={state.settings.darkMode}
+      onNavigate={setActivePage}
+      onToggleDark={() => updateSettings({ ...state.settings, darkMode: !state.settings.darkMode })}
+    >
+      {activePage === "dashboard" && <Dashboard state={state} onNavigate={setActivePage} />}
+      {activePage === "checkin" && todayRecord && (
+        <CheckinPage record={todayRecord} onChange={(record) => updateRecord(today, record)} onSave={saveCheckin} />
+      )}
+      {activePage === "history" && <HistoryPage state={state} />}
+      {activePage === "progress" && <ProgressPage progress={state.progress} onChange={updateProgress} />}
+      {activePage === "weakness" && <WeakPointsPage state={state} onChange={updateWeakPoints} />}
+      {activePage === "stats" && <StatsPage state={state} />}
+      {activePage === "settings" && (
+        <SettingsPage
+          state={state}
+          onSettingsChange={updateSettings}
+          onProgressChange={updateProgress}
+          onExportBackup={exportBackup}
+          onImportBackup={importBackup}
+          cloudConfigured={hasCloudConfig}
+          cloudUserEmail={cloudUserEmail}
+          cloudBusy={cloudBusy}
+          onCloudSignUp={cloudSignUp}
+          onCloudSignIn={cloudSignIn}
+          onCloudSignOut={cloudSignOut}
+          onCloudSyncChange={updateCloudSync}
+          onPushCloud={() => pushCloudState("manual")}
+          onPullCloud={pullCloudState}
+          onReset={resetState}
+        />
+      )}
+    </AppShell>
+  );
+}

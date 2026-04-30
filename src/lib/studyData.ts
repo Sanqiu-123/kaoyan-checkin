@@ -1,0 +1,1014 @@
+import {
+  AppState,
+  DailyRecord,
+  ProgressState,
+  Settings,
+  StudyTask,
+  Subject,
+  SubjectStat,
+  WeakPoint
+} from "@/types/study";
+import { addDays, compactDate, daysUntil, formatDateKey, isSameOrAfter, todayKey, toDate } from "@/lib/date";
+import { clamp, uid } from "@/lib/utils";
+
+export const STORAGE_KEY = "ai-kaoyan-checkin-state-v1";
+
+export const subjectMeta: Record<
+  Subject,
+  {
+    name: string;
+    shortName: string;
+    chartColor: string;
+    badgeClass: string;
+    softClass: string;
+    borderClass: string;
+  }
+> = {
+  math: {
+    name: "数学一",
+    shortName: "数学",
+    chartColor: "#2563eb",
+    badgeClass:
+      "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-200",
+    softClass: "bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-100",
+    borderClass: "border-l-blue-500"
+  },
+  cs408: {
+    name: "408专业课",
+    shortName: "408",
+    chartColor: "#7c3aed",
+    badgeClass:
+      "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-200",
+    softClass: "bg-violet-50 text-violet-800 dark:bg-violet-950/40 dark:text-violet-100",
+    borderClass: "border-l-violet-500"
+  },
+  english: {
+    name: "英语一",
+    shortName: "英语",
+    chartColor: "#16a34a",
+    badgeClass:
+      "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200",
+    softClass: "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100",
+    borderClass: "border-l-emerald-500"
+  },
+  review: {
+    name: "复盘计划",
+    shortName: "复盘",
+    chartColor: "#f97316",
+    badgeClass:
+      "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950/60 dark:text-orange-200",
+    softClass: "bg-orange-50 text-orange-800 dark:bg-orange-950/40 dark:text-orange-100",
+    borderClass: "border-l-orange-500"
+  }
+};
+
+export const defaultSettings: Settings = {
+  targetDate: "2026-07-01",
+  dailyStudyHours: 10,
+  darkMode: false
+};
+
+export const defaultCloudSync = {
+  enabled: false,
+  autoSync: false,
+  lastSyncedAt: undefined,
+  lastPulledAt: undefined,
+  lastError: undefined
+};
+
+export const defaultProgress: ProgressState = {
+  math: {
+    currentLecture: 5,
+    calculusDone: false,
+    linearStarted: false,
+    linearDone: false,
+    probabilityStarted: false,
+    probabilityDone: false,
+    zhangyu1000Done: 18,
+    mistakeCount: 0
+  },
+  cs408: {
+    dataStructureStatus: "已学完",
+    dataStructureExerciseRate: 65,
+    osChapter: 2,
+    osDone: false,
+    coaChapter: 1,
+    coaDone: false,
+    networkChapter: 1,
+    networkDone: false,
+    wangdaoExerciseRate: 32
+  },
+  english: {
+    wordDays: 1,
+    sentenceCount: 1,
+    readingStartDate: "2026-05-15",
+    readingStarted: false,
+    readingPassages: 0,
+    newWords: 0
+  }
+};
+
+export const stagePlans = {
+  math: [
+    "现在到5月下旬：完成张宇30讲高数部分",
+    "5月下旬到6月上旬：完成线性代数一轮",
+    "6月中旬到6月底：完成概率论一轮",
+    "6月底：回顾高数重点章节和错题"
+  ],
+  cs408: [
+    "现在到5月中旬：完成操作系统一轮",
+    "5月下旬到6月上旬：完成计算机组成原理一轮",
+    "6月中旬：完成计算机网络一轮",
+    "6月下旬：四科整体回顾，补数据结构和操作系统错题"
+  ],
+  english: [
+    "现在到5月中旬：单词+田静每日一句",
+    "5月中旬到6月中旬：加入早年真题阅读",
+    "6月中旬到6月底：阅读精读+错题分析",
+    "7月后：进入强化阶段"
+  ]
+};
+
+export function createInitialState(): AppState {
+  return {
+    version: 1,
+    records: {},
+    progress: defaultProgress,
+    settings: defaultSettings,
+    cloudSync: defaultCloudSync,
+    adjustmentLogs: [],
+    weakPoints: []
+  };
+}
+
+export function normalizeState(parsed?: Partial<AppState> | null): AppState {
+  if (!parsed) return createInitialState();
+  return {
+    ...createInitialState(),
+    ...parsed,
+    settings: { ...defaultSettings, ...parsed.settings },
+    cloudSync: { ...defaultCloudSync, ...parsed.cloudSync },
+    progress: {
+      math: { ...defaultProgress.math, ...parsed.progress?.math },
+      cs408: { ...defaultProgress.cs408, ...parsed.progress?.cs408 },
+      english: { ...defaultProgress.english, ...parsed.progress?.english }
+    },
+    records: parsed.records ?? {},
+    adjustmentLogs: parsed.adjustmentLogs ?? [],
+    weakPoints: parsed.weakPoints ?? []
+  };
+}
+
+export function loadState(): AppState {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return createInitialState();
+  try {
+    return normalizeState(JSON.parse(raw) as Partial<AppState>);
+  } catch {
+    return createInitialState();
+  }
+}
+
+export function saveState(state: AppState) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function makeTask(
+  date: string,
+  time: string,
+  subject: Subject,
+  title: string,
+  plannedMinutes: number
+): StudyTask {
+  return {
+    id: uid("task"),
+    date,
+    time,
+    subject,
+    title,
+    plannedMinutes,
+    completed: false,
+    actualMinutes: plannedMinutes,
+    quality: "",
+    note: "",
+    autoGenerated: true
+  };
+}
+
+function mathNewLessonTitle(progress: ProgressState, adjusted: boolean) {
+  if (!progress.math.calculusDone && progress.math.currentLecture < 18) {
+    const base = `张宇30讲高数第${Math.min(progress.math.currentLecture + 1, 18)}讲新内容`;
+    return adjusted ? `${base}少量推进，优先补昨日薄弱点` : base;
+  }
+  if (!progress.math.linearDone) {
+    return progress.math.linearStarted ? "线性代数一轮新内容推进" : "线性代数一轮启动：基础概念与例题";
+  }
+  if (!progress.math.probabilityDone) {
+    return progress.math.probabilityStarted ? "概率论一轮新内容推进" : "概率论一轮启动：随机事件与概率";
+  }
+  return "数学一轮回顾：高数重点章节与错题";
+}
+
+function mathExerciseTitle(progress: ProgressState) {
+  if (!progress.math.calculusDone && progress.math.currentLecture < 18) {
+    return `张宇1000题：高数第${Math.min(progress.math.currentLecture + 1, 18)}讲对应练习`;
+  }
+  if (!progress.math.linearDone) return "线性代数对应章节练习";
+  if (!progress.math.probabilityDone) return "概率论对应章节练习";
+  return "数学综合错题二刷与方法归纳";
+}
+
+function csNewLessonTitle(progress: ProgressState, adjusted: boolean) {
+  if (!progress.cs408.osDone) {
+    return adjusted
+      ? `王道操作系统第${progress.cs408.osChapter}章教材复盘+少量新课`
+      : `王道操作系统第${progress.cs408.osChapter}章新课+教材`;
+  }
+  if (!progress.cs408.coaDone) return `王道计算机组成原理第${progress.cs408.coaChapter}章新课+教材`;
+  if (!progress.cs408.networkDone) return `王道计算机网络第${progress.cs408.networkChapter}章新课+教材`;
+  return "408四科整体回顾：教材框架+薄弱题";
+}
+
+function csExerciseTitle(progress: ProgressState) {
+  if (!progress.cs408.osDone) return "操作系统对应章节练习";
+  if (!progress.cs408.coaDone) return "计算机组成原理对应章节练习";
+  if (!progress.cs408.networkDone) return "计算机网络对应章节练习";
+  return "408综合练习与错题整理";
+}
+
+export function getSubjectStats(record?: DailyRecord): SubjectStat[] {
+  const subjects: Subject[] = ["math", "cs408", "english", "review"];
+  return subjects.map((subject) => {
+    const tasks = record?.tasks.filter((task) => task.subject === subject) ?? [];
+    const completed = tasks.filter((task) => task.completed).length;
+    const total = tasks.length;
+    const minutes = tasks.reduce((sum, task) => sum + (Number(task.actualMinutes) || 0), 0);
+    return {
+      subject,
+      total,
+      completed,
+      rate: total ? (completed / total) * 100 : 0,
+      minutes
+    };
+  });
+}
+
+export function getCompletionRate(record?: DailyRecord) {
+  if (!record || record.tasks.length === 0) return 0;
+  return (record.tasks.filter((task) => task.completed).length / record.tasks.length) * 100;
+}
+
+export function getTotalMinutes(record?: DailyRecord) {
+  return record?.tasks.reduce((sum, task) => sum + (Number(task.actualMinutes) || 0), 0) ?? 0;
+}
+
+function previousRecords(state: AppState, date: string, count: number) {
+  return Array.from({ length: count }, (_, index) => state.records[addDays(date, -(index + 1))]).filter(Boolean);
+}
+
+export function buildAdjustmentMessages(state: AppState, date: string) {
+  const messages: string[] = [];
+  const [yesterday, twoDaysAgo, threeDaysAgo] = previousRecords(state, date, 3);
+
+  if (yesterday) {
+    const mathRate = getSubjectStats(yesterday).find((stat) => stat.subject === "math")?.rate ?? 0;
+    if (mathRate < 60) {
+      messages.push("昨日数学完成率较低，建议先补齐基础内容，不要急于推进新课。");
+    }
+
+    if (getCompletionRate(yesterday) > 85) {
+      messages.push("昨日整体完成情况较好，今日可以按原计划继续推进。");
+    }
+  }
+
+  if (yesterday && twoDaysAgo) {
+    const csRates = [yesterday, twoDaysAgo].map(
+      (record) => getSubjectStats(record).find((stat) => stat.subject === "cs408")?.rate ?? 0
+    );
+    if (csRates.every((rate) => rate < 60)) {
+      messages.push("408需要及时做题，不建议只看网课；今日减少新课，补王道练习和错题。");
+    }
+  }
+
+  if (yesterday && twoDaysAgo && threeDaysAgo) {
+    const onlyWords = [yesterday, twoDaysAgo, threeDaysAgo].every((record) => {
+      const englishTasks = record.tasks.filter((task) => task.subject === "english");
+      const wordDone = englishTasks.some((task) => task.title.includes("单词") && task.completed);
+      const sentenceDone = englishTasks.some(
+        (task) => (task.title.includes("每日一句") || task.title.includes("长难句")) && task.completed
+      );
+      return wordDone && !sentenceDone;
+    });
+    if (onlyWords) {
+      messages.push("英语一不能只背单词，长难句训练要保持连续；今日恢复田静每日一句和句子分析。");
+    }
+  }
+
+  return messages;
+}
+
+export function generateDailyRecord(date: string, state: AppState): DailyRecord {
+  const adjustmentMessages = buildAdjustmentMessages(state, date);
+  const mathAdjusted = adjustmentMessages.some((message) => message.includes("数学完成率较低"));
+  const csAdjusted = adjustmentMessages.some((message) => message.includes("408需要及时做题"));
+  const englishAdjusted = adjustmentMessages.some((message) => message.includes("英语一不能只背单词"));
+  const dueWeakPoints = state.weakPoints
+    .filter((item) => item.status !== "已掌握" && item.nextReviewDate <= date)
+    .sort((a, b) => a.nextReviewDate.localeCompare(b.nextReviewDate) || a.createdAt.localeCompare(b.createdAt))
+    .slice(0, 3);
+  const readingActive =
+    state.progress.english.readingStarted || isSameOrAfter(date, state.progress.english.readingStartDate);
+
+  const tasks: StudyTask[] = [
+    makeTask(date, "08:00-08:40", "english", "背单词：新词+旧词复习", 40),
+    makeTask(
+      date,
+      "08:40-09:00",
+      "math",
+      mathAdjusted ? "补昨日数学薄弱点：公式、例题、错题快速回看" : "回顾昨日数学：公式和方法复盘",
+      20
+    ),
+    makeTask(date, "09:00-11:30", "math", mathNewLessonTitle(state.progress, mathAdjusted), mathAdjusted ? 95 : 150),
+    makeTask(date, "11:30-12:00", "math", "数学知识点整理：例题理解+方法卡片", 30),
+    makeTask(date, "14:00-16:20", "cs408", csNewLessonTitle(state.progress, csAdjusted), csAdjusted ? 95 : 140),
+    makeTask(date, "16:20-17:20", "cs408", csExerciseTitle(state.progress), 60),
+    makeTask(
+      date,
+      "17:20-17:50",
+      "cs408",
+      state.progress.cs408.dataStructureExerciseRate < 100
+        ? "补数据结构遗留题30分钟"
+        : "408错题整理：数据结构/操作系统",
+      30
+    ),
+    makeTask(date, "19:20-21:20", "math", mathExerciseTitle(state.progress), 120),
+    makeTask(
+      date,
+      readingActive ? "21:20-21:40" : "21:20-22:00",
+      "english",
+      englishAdjusted ? "恢复田静每日一句：长难句拆分+翻译复盘" : "田静每日一句/长难句分析",
+      readingActive ? 20 : 40
+    )
+  ];
+
+  if (readingActive) {
+    tasks.push(makeTask(date, "21:40-22:00", "english", "英语一早年真题阅读半篇精读", 20));
+  }
+
+  if (mathAdjusted) {
+    tasks.push(makeTask(date, "碎片时间", "math", "数学补任务提醒：先补例题和1000题错题，再推进新课", 20));
+  }
+
+  if (csAdjusted) {
+    tasks.push(makeTask(date, "碎片时间", "cs408", "王道教材复习+错题回顾：避免只听课不做题", 25));
+  }
+
+  if (dueWeakPoints.length > 0) {
+    tasks.push(
+      makeTask(
+        date,
+        "22:20-22:40",
+        "review",
+        `薄弱点复盘：${dueWeakPoints.map((item) => item.title).join("；").slice(0, 48)}`,
+        20
+      )
+    );
+  }
+
+  tasks.push(makeTask(date, "22:00-22:20", "review", "今日复盘+明日计划", 20));
+
+  return {
+    date,
+    tasks,
+    summary: "",
+    suggestion: "",
+    adjustmentMessages,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+export function ensureTodayRecord(state: AppState, date = todayKey()) {
+  if (state.records[date]) return state;
+  return {
+    ...state,
+    records: {
+      ...state.records,
+      [date]: generateDailyRecord(date, state)
+    }
+  };
+}
+
+export function generateSuggestion(record: DailyRecord) {
+  const totalRate = getCompletionRate(record);
+  const stats = getSubjectStats(record);
+  const math = stats.find((stat) => stat.subject === "math")!;
+  const cs408 = stats.find((stat) => stat.subject === "cs408")!;
+  const english = stats.find((stat) => stat.subject === "english")!;
+  const undoneBySubject = (subject: Subject) =>
+    record.tasks
+      .filter((task) => task.subject === subject && !task.completed)
+      .slice(0, 2)
+      .map((task) => task.title);
+
+  if (totalRate >= 85) {
+    return "今日完成情况较好，可以按原计划继续推进。明天保持数学新课+1000题、408听课后及时做题、英语每日一句不断线。";
+  }
+
+  const parts: string[] = [];
+  if (math.rate < 60) {
+    const undone = undoneBySubject("math").join("、") || "基础题和错题";
+    parts.push(`数学完成率偏低，明天先补${undone}，新课只做少量推进，避免高数基础断层。`);
+  } else if (math.rate >= 80) {
+    parts.push("数学节奏不错，明天可以继续推进新讲，并保留睡前公式回顾。");
+  }
+
+  if (cs408.rate < 60) {
+    const practiceUndone = undoneBySubject("cs408").join("、") || "王道章节练习";
+    parts.push(`408今天推进不足，建议明天下午减少新课时间，优先补${practiceUndone}，不要只看网课。`);
+  }
+
+  if (english.rate < 70) {
+    parts.push("英语任务要保持连续，明天至少完成单词复习和田静每日一句，长难句不要断。");
+  }
+
+  if (parts.length === 0) {
+    return "今日总体完成一般，明天按原计划推进，但每科至少保留一道复盘动作：数学错题、408练习、英语长难句。";
+  }
+
+  return parts.join("");
+}
+
+export function applyProgressFromRecord(progress: ProgressState, record: DailyRecord): ProgressState {
+  const completed = record.tasks.filter((task) => task.completed);
+  const hasMathLesson = completed.some(
+    (task) => task.subject === "math" && task.title.includes("张宇30讲") && task.title.includes("新内容")
+  );
+  const hasMathPractice = completed.some((task) => task.subject === "math" && task.title.includes("1000题"));
+  const hasWord = completed.some((task) => task.subject === "english" && task.title.includes("单词"));
+  const hasSentence = completed.some(
+    (task) => task.subject === "english" && (task.title.includes("每日一句") || task.title.includes("长难句"))
+  );
+  const hasReading = completed.some((task) => task.subject === "english" && task.title.includes("阅读"));
+  const hasCsLesson = completed.some((task) => task.subject === "cs408" && task.title.includes("新课"));
+  const hasDsPractice = completed.some((task) => task.subject === "cs408" && task.title.includes("补数据结构"));
+  const hasWangdaoPractice = completed.some((task) => task.subject === "cs408" && task.title.includes("练习"));
+
+  const next: ProgressState = {
+    math: { ...progress.math },
+    cs408: { ...progress.cs408 },
+    english: { ...progress.english }
+  };
+
+  if (hasMathLesson && !next.math.calculusDone) {
+    next.math.currentLecture = Math.min(18, next.math.currentLecture + 1);
+    next.math.calculusDone = next.math.currentLecture >= 18;
+  }
+  if (hasMathPractice) next.math.zhangyu1000Done += 1;
+  if (hasWord) next.english.wordDays += 1;
+  if (hasSentence) next.english.sentenceCount += 1;
+  if (hasReading) {
+    next.english.readingStarted = true;
+    next.english.readingPassages += 0.5;
+  }
+  if (hasCsLesson) {
+    if (!next.cs408.osDone) {
+      next.cs408.osChapter += 1;
+      next.cs408.osDone = next.cs408.osChapter > 8;
+    } else if (!next.cs408.coaDone) {
+      next.cs408.coaChapter += 1;
+      next.cs408.coaDone = next.cs408.coaChapter > 8;
+    } else if (!next.cs408.networkDone) {
+      next.cs408.networkChapter += 1;
+      next.cs408.networkDone = next.cs408.networkChapter > 7;
+    }
+  }
+  if (hasDsPractice) {
+    next.cs408.dataStructureExerciseRate = clamp(next.cs408.dataStructureExerciseRate + 5);
+  }
+  if (hasWangdaoPractice) {
+    next.cs408.wangdaoExerciseRate = clamp(next.cs408.wangdaoExerciseRate + 2);
+  }
+
+  return next;
+}
+
+export function buildTrendData(state: AppState, endDate = todayKey()) {
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(endDate, index - 6);
+    const record = state.records[date];
+    const stats = getSubjectStats(record);
+    return {
+      date,
+      label: compactDate(date),
+      完成率: Math.round(getCompletionRate(record)),
+      数学: Math.round(stats.find((stat) => stat.subject === "math")?.rate ?? 0),
+      "408": Math.round(stats.find((stat) => stat.subject === "cs408")?.rate ?? 0),
+      英语: Math.round(stats.find((stat) => stat.subject === "english")?.rate ?? 0),
+      学习时长: Number((getTotalMinutes(record) / 60).toFixed(1))
+    };
+  });
+}
+
+export function buildSubjectHoursData(state: AppState) {
+  const totals: Record<Subject, number> = {
+    math: 0,
+    cs408: 0,
+    english: 0,
+    review: 0
+  };
+
+  Object.values(state.records).forEach((record) => {
+    getSubjectStats(record).forEach((stat) => {
+      totals[stat.subject] += stat.minutes;
+    });
+  });
+
+  return (Object.keys(totals) as Subject[]).map((subject) => ({
+    subject: subjectMeta[subject].shortName,
+    hours: Number((totals[subject] / 60).toFixed(1)),
+    fill: subjectMeta[subject].chartColor
+  }));
+}
+
+export function buildSubjectCompletionData(state: AppState) {
+  const totals: Record<Subject, { total: number; completed: number }> = {
+    math: { total: 0, completed: 0 },
+    cs408: { total: 0, completed: 0 },
+    english: { total: 0, completed: 0 },
+    review: { total: 0, completed: 0 }
+  };
+
+  Object.values(state.records).forEach((record) => {
+    getSubjectStats(record).forEach((stat) => {
+      totals[stat.subject].total += stat.total;
+      totals[stat.subject].completed += stat.completed;
+    });
+  });
+
+  return (Object.keys(totals) as Subject[]).map((subject) => ({
+    subject: subjectMeta[subject].shortName,
+    完成率: totals[subject].total ? Math.round((totals[subject].completed / totals[subject].total) * 100) : 0
+  }));
+}
+
+export function getWeekMinutes(state: AppState, endDate = todayKey()) {
+  return Array.from({ length: 7 }, (_, index) => state.records[addDays(endDate, index - 6)]).reduce(
+    (sum, record) => sum + getTotalMinutes(record),
+    0
+  );
+}
+
+export function getOverallProgress(progress: ProgressState) {
+  const math =
+    (Math.min(progress.math.currentLecture, 18) / 18) * 45 +
+    (progress.math.linearDone ? 25 : progress.math.linearStarted ? 10 : 0) +
+    (progress.math.probabilityDone ? 20 : progress.math.probabilityStarted ? 8 : 0) +
+    Math.min(progress.math.zhangyu1000Done / 90, 1) * 10;
+
+  const cs408 =
+    (progress.cs408.dataStructureStatus === "已学完" ? 22 : progress.cs408.dataStructureStatus === "复习中" ? 14 : 0) +
+    Math.min(progress.cs408.dataStructureExerciseRate, 100) * 0.08 +
+    (progress.cs408.osDone ? 25 : Math.min(progress.cs408.osChapter / 8, 1) * 25) +
+    (progress.cs408.coaDone ? 22 : Math.min((progress.cs408.coaChapter - 1) / 8, 1) * 22) +
+    (progress.cs408.networkDone ? 15 : Math.min((progress.cs408.networkChapter - 1) / 7, 1) * 15) +
+    Math.min(progress.cs408.wangdaoExerciseRate, 100) * 0.08;
+
+  const english =
+    Math.min(progress.english.wordDays / 60, 1) * 35 +
+    Math.min(progress.english.sentenceCount / 50, 1) * 30 +
+    Math.min(progress.english.readingPassages / 20, 1) * 25 +
+    (progress.english.readingStarted ? 10 : 0);
+
+  return {
+    math: Math.round(clamp(math)),
+    cs408: Math.round(clamp(cs408)),
+    english: Math.round(clamp(english)),
+    overall: Math.round(clamp((math + cs408 + english) / 3))
+  };
+}
+
+export function getDashboardAlerts(state: AppState, date = todayKey()) {
+  const alerts: { type: "danger" | "warning" | "info"; text: string }[] = [];
+  const recent = previousRecords(state, date, 4);
+  const subjects: Subject[] = ["math", "cs408", "english"];
+
+  subjects.forEach((subject) => {
+    const inactiveDays = recent.filter((record) => {
+      const stat = getSubjectStats(record).find((item) => item.subject === subject);
+      return stat && stat.total > 0 && stat.completed === 0;
+    }).length;
+    if (inactiveDays >= 3) {
+      alerts.push({
+        type: "danger",
+        text: `${subjectMeta[subject].name}连续多天未完成，可能拖慢7月前完成一轮复习的目标。`
+      });
+    }
+  });
+
+  const todayRecord = state.records[date];
+  todayRecord?.adjustmentMessages.forEach((message) => {
+    alerts.push({ type: message.includes("较好") ? "info" : "warning", text: message });
+  });
+
+  const overdueWeakPoints = state.weakPoints.filter((item) => item.status !== "已掌握" && item.nextReviewDate <= date);
+  if (overdueWeakPoints.length >= 3) {
+    alerts.push({
+      type: "danger",
+      text: `当前有${overdueWeakPoints.length}个薄弱点到期未复盘，建议今晚先处理错题和卡点。`
+    });
+  }
+
+  return alerts;
+}
+
+export function getPlanStatus(progress: ProgressState, date = todayKey()) {
+  const current = toDate(date);
+  const year = current.getFullYear();
+  const may15 = formatDateKey(new Date(year, 4, 15));
+  const may25 = formatDateKey(new Date(year, 4, 25));
+  const jun10 = formatDateKey(new Date(year, 5, 10));
+  const jun20 = formatDateKey(new Date(year, 5, 20));
+
+  const rows = [
+    {
+      subject: "数学一",
+      current: progress.math.calculusDone
+        ? progress.math.linearDone
+          ? progress.math.probabilityDone
+            ? "一轮完成，进入回顾"
+            : "概率论推进中"
+          : "线性代数推进中"
+        : `高数第${progress.math.currentLecture}讲附近`,
+      status:
+        date > may25 && !progress.math.calculusDone
+          ? "偏慢"
+          : date > jun10 && !progress.math.linearDone
+            ? "需加速"
+            : "正常"
+    },
+    {
+      subject: "408",
+      current: progress.cs408.osDone
+        ? progress.cs408.coaDone
+          ? progress.cs408.networkDone
+            ? "四科回顾中"
+            : `计网第${progress.cs408.networkChapter}章`
+          : `计组第${progress.cs408.coaChapter}章`
+        : `操作系统第${progress.cs408.osChapter}章`,
+      status:
+        date > may15 && !progress.cs408.osDone
+          ? "偏慢"
+          : date > jun10 && !progress.cs408.coaDone
+            ? "需加速"
+            : date > jun20 && !progress.cs408.networkDone
+              ? "需加速"
+              : "正常"
+    },
+    {
+      subject: "英语一",
+      current: progress.english.readingStarted
+        ? `阅读已完成${progress.english.readingPassages}篇`
+        : `单词${progress.english.wordDays}天，每日一句${progress.english.sentenceCount}句`,
+      status: date > may15 && !progress.english.readingStarted ? "需加入阅读" : "正常"
+    }
+  ];
+
+  return rows;
+}
+
+export function buildDailyStrategy(state: AppState, date = todayKey()) {
+  const todayRecord = state.records[date];
+  const [yesterday, twoDaysAgo] = previousRecords(state, date, 2);
+  const yesterdayRate = yesterday ? Math.round(getCompletionRate(yesterday)) : null;
+  const yesterdayStats = yesterday
+    ? getSubjectStats(yesterday).filter((stat) => stat.subject !== "review" && stat.total > 0)
+    : [];
+  const weakestYesterday = [...yesterdayStats].sort((a, b) => a.rate - b.rate)[0];
+  const targetGaps = buildTargetGapRows(state, date).filter((row) => row.status !== "正常");
+  const overdueWeakPoints = getReviewReminders(state, date, 3);
+  const adjustmentMessages = todayRecord?.adjustmentMessages ?? buildAdjustmentMessages(state, date);
+  const priorities: string[] = [];
+  const timeAdvice: string[] = [];
+  const guardrails: string[] = [];
+
+  if (!yesterday) {
+    priorities.push("今天先完整跑一遍默认计划，晚上保存打卡，为后续自动调整建立基线。");
+  }
+
+  if (overdueWeakPoints.length > 0) {
+    priorities.push(`先处理${overdueWeakPoints.length}个到期薄弱点：${overdueWeakPoints.map((item) => item.title).join("、")}。`);
+    timeAdvice.push("晚间复盘时间优先给薄弱点，不要只写总结。");
+  }
+
+  if (weakestYesterday && weakestYesterday.rate < 60) {
+    priorities.push(
+      `昨日${subjectMeta[weakestYesterday.subject].name}完成率${Math.round(weakestYesterday.rate)}%，今天先补基础和练习，再推进新内容。`
+    );
+  }
+
+  if (targetGaps.length > 0) {
+    priorities.push(`${targetGaps.map((row) => row.label).join("、")}相对7月目标偏慢，今天至少完成一个可计入进度的推进任务。`);
+  }
+
+  adjustmentMessages.forEach((message) => {
+    if (!priorities.includes(message)) priorities.push(message);
+  });
+
+  if (priorities.length === 0) {
+    priorities.push("今天按默认计划推进，确保每科都有一个可检查的完成结果。");
+  }
+
+  if (yesterdayRate !== null && yesterdayRate >= 85) {
+    timeAdvice.push("昨天整体完成较好，今天可以正常推进新课，但仍要保留错题复盘。");
+  } else if (yesterdayRate !== null && yesterdayRate < 60) {
+    timeAdvice.push("昨天整体完成偏低，今天不要把计划排满，优先完成核心任务。");
+  } else {
+    timeAdvice.push("今天按默认节奏推进，上午数学、下午408、晚上题目和英语不断线。");
+  }
+
+  if (weakestYesterday?.subject === "math") {
+    timeAdvice.push("数学新课时间可以压缩一点，把1000题和错题整理做实。");
+  }
+  if (weakestYesterday?.subject === "cs408") {
+    timeAdvice.push("408下午先做王道教材和章节练习，网课只服务于做题。");
+  }
+  if (weakestYesterday?.subject === "english") {
+    timeAdvice.push("英语今晚必须完成每日一句或长难句，不能只背单词。");
+  }
+
+  if (twoDaysAgo) {
+    const csRates = [yesterday, twoDaysAgo]
+      .filter(Boolean)
+      .map((record) => getSubjectStats(record).find((stat) => stat.subject === "cs408")?.rate ?? 0);
+    if (csRates.length === 2 && csRates.every((rate) => rate < 60)) {
+      guardrails.push("408已经连续两天偏低，今天不建议继续堆新课，先补练习闭环。");
+    }
+  }
+
+  guardrails.push("今日备注尽量写具体卡点，例如“进程同步PV不会建模”，系统会自动沉淀到薄弱点库。");
+  guardrails.push("如果只能保底完成，优先顺序是：数学核心推进、408练习、英语长难句、复盘。");
+
+  const headline =
+    overdueWeakPoints.length > 0
+      ? "今天的关键不是多学新内容，而是先把到期薄弱点清掉。"
+      : targetGaps.length > 0
+        ? "今天要兼顾推进和纠偏，至少把偏慢科目推进一个明确单元。"
+        : yesterdayRate !== null && yesterdayRate >= 85
+          ? "昨天完成不错，今天可以按原计划稳定推进。"
+          : "今天重点是稳定完成核心任务，并留下可复盘的具体记录。";
+
+  return {
+    headline,
+    yesterdayRate,
+    priorities: priorities.slice(0, 4),
+    timeAdvice: timeAdvice.slice(0, 3),
+    guardrails: guardrails.slice(0, 3)
+  };
+}
+
+function inferSubjectFromText(text: string): Subject {
+  if (/数学|高数|线代|概率|积分|极限|导数|1000题|张宇/.test(text)) return "math";
+  if (/408|数据结构|操作系统|计组|计网|进程|线程|王道|组成原理|网络/.test(text)) return "cs408";
+  if (/英语|单词|阅读|长难句|每日一句|翻译|生词|田静/.test(text)) return "english";
+  return "review";
+}
+
+function normalizeWeakTitle(title: string) {
+  return title.replace(/\s+/g, "").replace(/[，。；、:：,.]/g, "").toLowerCase();
+}
+
+function splitNoteToWeakItems(text: string) {
+  return text
+    .split(/[\n。；;]+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 3)
+    .map((item) => item.slice(0, 42));
+}
+
+export function extractWeakPointsFromRecord(record: DailyRecord, existingWeakPoints: WeakPoint[]) {
+  const now = new Date().toISOString();
+  const existingKeys = new Set(
+    existingWeakPoints
+      .filter((item) => item.status !== "已掌握")
+      .map((item) => `${item.subject}-${normalizeWeakTitle(item.title)}`)
+  );
+  const candidates: Array<{ subject: Subject; title: string; source: string; nextReviewDate: string }> = [];
+
+  record.tasks.forEach((task) => {
+    if (!task.completed && task.subject !== "review") {
+      candidates.push({
+        subject: task.subject,
+        title: `未完成：${task.title}`,
+        source: `${record.date} 任务未完成`,
+        nextReviewDate: addDays(record.date, 1)
+      });
+    }
+
+    splitNoteToWeakItems(task.note).forEach((note) => {
+      candidates.push({
+        subject: task.subject,
+        title: note,
+        source: `${record.date} 单项备注`,
+        nextReviewDate: addDays(record.date, 2)
+      });
+    });
+  });
+
+  splitNoteToWeakItems(record.summary).forEach((note) => {
+    candidates.push({
+      subject: inferSubjectFromText(note),
+      title: note,
+      source: `${record.date} 今日总结`,
+      nextReviewDate: addDays(record.date, 2)
+    });
+  });
+
+  return candidates
+    .filter((candidate) => {
+      const key = `${candidate.subject}-${normalizeWeakTitle(candidate.title)}`;
+      if (existingKeys.has(key)) return false;
+      existingKeys.add(key);
+      return true;
+    })
+    .map<WeakPoint>((candidate) => ({
+      id: uid("weak"),
+      date: record.date,
+      subject: candidate.subject,
+      title: candidate.title,
+      source: candidate.source,
+      status: "待复盘",
+      reviewCount: 0,
+      nextReviewDate: candidate.nextReviewDate,
+      createdAt: now,
+      updatedAt: now
+    }));
+}
+
+export function getWeakPointStats(state: AppState, date = todayKey()) {
+  const active = state.weakPoints.filter((item) => item.status !== "已掌握");
+  const overdue = active.filter((item) => item.nextReviewDate <= date);
+  const mastered = state.weakPoints.filter((item) => item.status === "已掌握");
+  const bySubject = (["math", "cs408", "english", "review"] as Subject[]).map((subject) => ({
+    subject,
+    total: active.filter((item) => item.subject === subject).length,
+    overdue: overdue.filter((item) => item.subject === subject).length
+  }));
+
+  return {
+    active: active.length,
+    overdue: overdue.length,
+    mastered: mastered.length,
+    bySubject
+  };
+}
+
+export function getReviewReminders(state: AppState, date = todayKey(), limit = 6) {
+  return state.weakPoints
+    .filter((item) => item.status !== "已掌握" && item.nextReviewDate <= date)
+    .sort((a, b) => a.nextReviewDate.localeCompare(b.nextReviewDate) || a.createdAt.localeCompare(b.createdAt))
+    .slice(0, limit);
+}
+
+function getRecentRecords(state: AppState, endDate = todayKey(), days = 7) {
+  return Array.from({ length: days }, (_, index) => state.records[addDays(endDate, index - days + 1)]).filter(Boolean);
+}
+
+function countRecentCompletedTasks(state: AppState, subject: Subject, matcher: (title: string) => boolean) {
+  return getRecentRecords(state).reduce(
+    (sum, record) =>
+      sum +
+      record.tasks.filter((task) => task.subject === subject && task.completed && matcher(task.title)).length,
+    0
+  );
+}
+
+export function buildTargetGapRows(state: AppState, date = todayKey()) {
+  const daysLeft = Math.max(daysUntil(state.settings.targetDate), 1);
+  const mathRemaining =
+    Math.max(0, 18 - state.progress.math.currentLecture) +
+    (state.progress.math.linearDone ? 0 : 8) +
+    (state.progress.math.probabilityDone ? 0 : 6);
+  const cs408Remaining =
+    (state.progress.cs408.osDone ? 0 : Math.max(0, 9 - state.progress.cs408.osChapter)) +
+    (state.progress.cs408.coaDone ? 0 : Math.max(0, 9 - state.progress.cs408.coaChapter)) +
+    (state.progress.cs408.networkDone ? 0 : Math.max(0, 8 - state.progress.cs408.networkChapter));
+  const englishRemaining = Math.max(0, 20 - state.progress.english.readingPassages);
+
+  const rows = [
+    {
+      subject: "math" as Subject,
+      label: "数学一",
+      current: state.progress.math.calculusDone
+        ? state.progress.math.linearDone
+          ? "线代已闭环，准备概率论/综合回顾"
+          : "线性代数阶段"
+        : `高数第${state.progress.math.currentLecture}讲附近`,
+      remaining: `${mathRemaining}个推进单元`,
+      requiredPace: mathRemaining / daysLeft,
+      recentPace: countRecentCompletedTasks(state, "math", (title) => /新内容|张宇30讲|线性代数|概率论/.test(title)) / 7,
+      suggestion: "数学每天至少保留新课推进和1000题练习，薄弱章节不要只看答案。"
+    },
+    {
+      subject: "cs408" as Subject,
+      label: "408",
+      current: state.progress.cs408.osDone
+        ? state.progress.cs408.coaDone
+          ? `计网第${state.progress.cs408.networkChapter}章`
+          : `计组第${state.progress.cs408.coaChapter}章`
+        : `操作系统第${state.progress.cs408.osChapter}章`,
+      remaining: `${cs408Remaining}章左右`,
+      requiredPace: cs408Remaining / daysLeft,
+      recentPace: countRecentCompletedTasks(state, "cs408", (title) => /新课|教材/.test(title)) / 7,
+      suggestion: "408要把教材阅读和课后题绑定，连续低完成时先补题再推进新课。"
+    },
+    {
+      subject: "english" as Subject,
+      label: "英语一",
+      current: state.progress.english.readingStarted
+        ? `阅读${state.progress.english.readingPassages}篇`
+        : "单词+每日一句阶段",
+      remaining: `${englishRemaining}篇阅读目标`,
+      requiredPace: englishRemaining / daysLeft,
+      recentPace:
+        getRecentRecords(state).reduce(
+          (sum, record) =>
+            sum + record.tasks.filter((task) => task.subject === "english" && task.completed && task.title.includes("阅读")).length,
+          0
+        ) / 7,
+      suggestion: "英语不能只背单词，阅读启动后要固定做长难句和错因归纳。"
+    }
+  ];
+
+  return rows.map((row) => {
+    const status =
+      row.recentPace === 0 && Number.parseFloat(row.remaining) > 0
+        ? "停滞"
+        : row.recentPace + 0.05 < row.requiredPace
+          ? "偏慢"
+          : "正常";
+    return {
+      ...row,
+      requiredPace: Number(row.requiredPace.toFixed(2)),
+      recentPace: Number(row.recentPace.toFixed(2)),
+      status
+    };
+  });
+}
+
+export function buildWeeklyReport(state: AppState, date = todayKey()) {
+  const records = getRecentRecords(state, date, 7);
+  const subjectStats = (["math", "cs408", "english"] as Subject[]).map((subject) => {
+    const total = records.reduce((sum, record) => sum + record.tasks.filter((task) => task.subject === subject).length, 0);
+    const completed = records.reduce(
+      (sum, record) => sum + record.tasks.filter((task) => task.subject === subject && task.completed).length,
+      0
+    );
+    const minutes = records.reduce(
+      (sum, record) =>
+        sum +
+        record.tasks
+          .filter((task) => task.subject === subject)
+          .reduce((taskSum, task) => taskSum + (Number(task.actualMinutes) || 0), 0),
+      0
+    );
+
+    return {
+      subject,
+      rate: total ? Math.round((completed / total) * 100) : 0,
+      minutes
+    };
+  });
+  const averageRate = records.length
+    ? Math.round(records.reduce((sum, record) => sum + getCompletionRate(record), 0) / records.length)
+    : 0;
+  const weakest = [...subjectStats].sort((a, b) => a.rate - b.rate)[0];
+  const strongest = [...subjectStats].sort((a, b) => b.rate - a.rate)[0];
+  const overdueWeakPoints = getReviewReminders(state, date, 4);
+  const targetGaps = buildTargetGapRows(state, date).filter((row) => row.status !== "正常");
+  const suggestions: string[] = [];
+
+  if (weakest) {
+    suggestions.push(`${subjectMeta[weakest.subject].name}是本周短板，完成率${weakest.rate}%，下周先保证最低连续性。`);
+  }
+  if (overdueWeakPoints.length > 0) {
+    suggestions.push(`当前有${overdueWeakPoints.length}个薄弱点到期复盘，建议每天晚间复盘至少2个。`);
+  }
+  if (targetGaps.length > 0) {
+    suggestions.push(`${targetGaps.map((row) => row.label).join("、")}相对目标偏慢，需要减少低价值耗时。`);
+  }
+  if (suggestions.length === 0) {
+    suggestions.push("本周节奏比较稳，可以继续按当前计划推进，同时保持错题复盘。");
+  }
+
+  return {
+    days: records.length,
+    totalHours: Number((records.reduce((sum, record) => sum + getTotalMinutes(record), 0) / 60).toFixed(1)),
+    averageRate,
+    subjectStats,
+    weakest,
+    strongest,
+    overdueWeakPoints,
+    suggestions
+  };
+}

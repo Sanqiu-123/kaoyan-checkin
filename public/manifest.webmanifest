@@ -1,0 +1,19 @@
+{
+  "name": "人工智能专业考研打卡系统",
+  "short_name": "考研打卡",
+  "description": "每日任务、进度管理、薄弱点复盘与云端同步。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
