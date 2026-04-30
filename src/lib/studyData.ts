@@ -308,6 +308,7 @@ export function buildAdjustmentMessages(state: AppState, date: string) {
 }
 
 export function generateDailyRecord(date: string, state: AppState): DailyRecord {
+  const timestamp = new Date().toISOString();
   const adjustmentMessages = buildAdjustmentMessages(state, date);
   const mathAdjusted = adjustmentMessages.some((message) => message.includes("数学完成率较低"));
   const csAdjusted = adjustmentMessages.some((message) => message.includes("408需要及时做题"));
@@ -383,8 +384,8 @@ export function generateDailyRecord(date: string, state: AppState): DailyRecord 
     summary: "",
     suggestion: "",
     adjustmentMessages,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    createdAt: timestamp,
+    updatedAt: timestamp
   };
 }
 

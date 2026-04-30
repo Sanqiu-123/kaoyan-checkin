@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { AppState } from "@/types/study";
-import { daysUntil, todayKey } from "@/lib/date";
+import { addDays, daysUntil, displayDate, todayKey } from "@/lib/date";
 import {
   buildDailyStrategy,
   buildTargetGapRows,
@@ -74,13 +74,16 @@ function taskStartMinutes(time: string) {
 
 export function Dashboard({ state, onNavigate }: DashboardProps) {
   const today = todayKey();
+  const yesterday = addDays(today, -1);
   const record = state.records[today];
+  const yesterdayRecord = state.records[yesterday];
   const totalTasks = record?.tasks.length ?? 0;
   const completedTasks = record?.tasks.filter((task) => task.completed).length ?? 0;
   const todayTasks = [...(record?.tasks ?? [])].sort(
     (a, b) => taskStartMinutes(a.time) - taskStartMinutes(b.time) || a.time.localeCompare(b.time)
   );
   const completionRate = getCompletionRate(record);
+  const yesterdayCompletionRate = getCompletionRate(yesterdayRecord);
   const subjectStats = getSubjectStats(record);
   const trendData = buildTrendData(state);
   const hoursData = buildSubjectHoursData(state);
@@ -337,6 +340,35 @@ export function Dashboard({ state, onNavigate }: DashboardProps) {
             ))}
             <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
               当前默认按“7月1日前完成一轮”估算。章节、题量和阅读篇数可以在进度管理页手动修正。
+            </div>
+            <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-100">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-semibold">昨日总结与建议</p>
+                <Badge className="border-orange-200 bg-white/70 text-orange-700 dark:border-orange-900 dark:bg-orange-950/50 dark:text-orange-100">
+                  {displayDate(yesterday)}
+                </Badge>
+              </div>
+              {yesterdayRecord ? (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-orange-800/80 dark:text-orange-100/80">
+                    昨日完成率：{percent(yesterdayCompletionRate)}
+                  </p>
+                  <div>
+                    <p className="text-xs font-medium text-orange-800 dark:text-orange-100">总结</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {yesterdayRecord.summary.trim() || "昨日还没有填写总结，可以补充卡点、错题和未完成原因。"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-orange-800 dark:text-orange-100">建议</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {yesterdayRecord.suggestion.trim() || "昨日尚未保存打卡，保存后这里会显示系统建议。"}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-3 text-muted-foreground">昨日暂无记录。可以到每日打卡页选择日期补打卡，首页会据此更新策略。</p>
+              )}
             </div>
           </CardContent>
         </Card>
