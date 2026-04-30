@@ -1,6 +1,7 @@
 node_modules
 dist
 *.log
+*.zip
 startup-log.txt
 .env
 .env.local
