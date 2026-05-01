@@ -9,7 +9,12 @@ import {
   WeakPoint
 } from "@/types/study";
 import { addDays, compactDate, daysUntil, formatDateKey, isSameOrAfter, todayKey, toDate } from "@/lib/date";
-import { getCs408Focus, getCurriculumFocuses, getEnglishFocus, getMathFocus } from "@/lib/curriculum";
+import {
+  getCs408Focus,
+  getCurriculumFocuses as buildCurriculumFocuses,
+  getEnglishFocus,
+  getMathFocus
+} from "@/lib/curriculum";
 import { clamp, uid } from "@/lib/utils";
 
 export const STORAGE_KEY = "ai-kaoyan-checkin-state-v1";
@@ -251,6 +256,96 @@ function previousRecords(state: AppState, date: string, count: number) {
   return Array.from({ length: count }, (_, index) => state.records[addDays(date, -(index + 1))]).filter(Boolean);
 }
 
+function mathRecordText(record: DailyRecord) {
+  const mathTaskText = record.tasks
+    .filter((task) => task.subject === "math")
+    .map((task) => `${task.title} ${task.note}`)
+    .join(" ");
+  return `${record.summary} ${mathTaskText}`;
+}
+
+function parseLectureNumber(value: string) {
+  if (/^\d+$/.test(value)) return Number(value);
+  const digits: Record<string, number> = {
+    一: 1,
+    二: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9
+  };
+  if (value === "十") return 10;
+  if (value.startsWith("十")) return 10 + (digits[value.slice(1)] ?? 0);
+  if (value.endsWith("十")) return (digits[value.slice(0, 1)] ?? 0) * 10;
+  if (value.includes("十")) {
+    const [tens, ones] = value.split("十");
+    return (digits[tens] ?? 1) * 10 + (digits[ones] ?? 0);
+  }
+  return digits[value] ?? 0;
+}
+
+function mentionedMathLecture(text: string) {
+  const matches = [...text.matchAll(/第\s*(\d{1,2}|[一二三四五六七八九十]{1,3})\s*讲/g)]
+    .map((match) => parseLectureNumber(match[1]))
+    .filter((value) => value >= 1 && value <= 18);
+  return matches.length > 0 ? matches[matches.length - 1] : null;
+}
+
+function unfinishedMathLectureFromRecord(record: DailyRecord) {
+  const text = mathRecordText(record);
+  const unfinished =
+    /(没学完|未学完|没看完|未看完|没听完|未听完|没完成|未完成|没有完成|还差|剩下|剩余|继续补|继续学|待补)/.test(text);
+  if (unfinished) return mentionedMathLecture(record.summary) ?? mentionedMathLecture(text);
+
+  const incompleteLesson = record.tasks.find(
+    (task) =>
+      task.subject === "math" &&
+      !task.completed &&
+      /张宇30讲|高数第(\d+|[一二三四五六七八九十]+)讲|第\s*(\d+|[一二三四五六七八九十]+)\s*讲/.test(task.title)
+  );
+  return incompleteLesson ? mentionedMathLecture(incompleteLesson.title) : null;
+}
+
+function hasCompletedMathLessonRecord(record: DailyRecord) {
+  return record.tasks.some(
+    (task) =>
+      task.subject === "math" &&
+      task.completed &&
+      /张宇30讲|高数第(\d+|[一二三四五六七八九十]+)讲|第\s*(\d+|[一二三四五六七八九十]+)\s*讲/.test(task.title) &&
+      /新内容|网课|少量推进/.test(task.title)
+  );
+}
+
+function pendingMathLectureFromRecentRecords(state: AppState, date: string) {
+  for (const record of previousRecords(state, date, 3)) {
+    const pendingLecture = unfinishedMathLectureFromRecord(record);
+    if (pendingLecture) return pendingLecture;
+    if (hasCompletedMathLessonRecord(record)) return null;
+  }
+  return null;
+}
+
+export function getPlanningProgress(state: AppState, date = todayKey()): ProgressState {
+  const pendingMathLecture = pendingMathLectureFromRecentRecords(state, date);
+  if (!pendingMathLecture) return state.progress;
+
+  return {
+    ...state.progress,
+    math: {
+      ...state.progress.math,
+      currentLecture: pendingMathLecture,
+      calculusDone: false
+    }
+  };
+}
+
+export function getCurriculumFocusesForState(state: AppState, date = todayKey()) {
+  return buildCurriculumFocuses(getPlanningProgress(state, date), date);
+}
+
 export function buildAdjustmentMessages(state: AppState, date: string) {
   const messages: string[] = [];
   const [yesterday, twoDaysAgo, threeDaysAgo] = previousRecords(state, date, 3);
@@ -298,15 +393,16 @@ export function generateDailyRecord(date: string, state: AppState): DailyRecord 
   const mathAdjusted = adjustmentMessages.some((message) => message.includes("数学完成率较低"));
   const csAdjusted = adjustmentMessages.some((message) => message.includes("408需要及时做题"));
   const englishAdjusted = adjustmentMessages.some((message) => message.includes("英语一不能只背单词"));
-  const mathFocus = getMathFocus(state.progress);
-  const cs408Focus = getCs408Focus(state.progress);
-  const englishFocus = getEnglishFocus(state.progress, date);
+  const planningProgress = getPlanningProgress(state, date);
+  const mathFocus = getMathFocus(planningProgress);
+  const cs408Focus = getCs408Focus(planningProgress);
+  const englishFocus = getEnglishFocus(planningProgress, date);
   const dueWeakPoints = state.weakPoints
     .filter((item) => item.status !== "已掌握" && item.nextReviewDate <= date)
     .sort((a, b) => a.nextReviewDate.localeCompare(b.nextReviewDate) || a.createdAt.localeCompare(b.createdAt))
     .slice(0, 3);
   const readingActive =
-    state.progress.english.readingStarted || isSameOrAfter(date, state.progress.english.readingStartDate);
+    planningProgress.english.readingStarted || isSameOrAfter(date, planningProgress.english.readingStartDate);
 
   const tasks: StudyTask[] = [
     makeTask(date, "08:00-08:40", "english", "背单词：新词+旧词复习", 40),
@@ -317,20 +413,20 @@ export function generateDailyRecord(date: string, state: AppState): DailyRecord 
       mathAdjusted ? "补昨日数学薄弱点：公式、例题、错题快速回看" : "回顾昨日数学：公式和方法复盘",
       20
     ),
-    makeTask(date, "09:00-11:30", "math", mathNewLessonTitle(state.progress, mathAdjusted), mathAdjusted ? 95 : 150),
+    makeTask(date, "09:00-11:30", "math", mathNewLessonTitle(planningProgress, mathAdjusted), mathAdjusted ? 95 : 150),
     makeTask(date, "11:30-12:00", "math", `数学知识点整理：${mathFocus.checkpoint}`, 30),
-    makeTask(date, "14:00-16:20", "cs408", csNewLessonTitle(state.progress, csAdjusted), csAdjusted ? 95 : 140),
-    makeTask(date, "16:20-17:20", "cs408", csExerciseTitle(state.progress), 60),
+    makeTask(date, "14:00-16:20", "cs408", csNewLessonTitle(planningProgress, csAdjusted), csAdjusted ? 95 : 140),
+    makeTask(date, "16:20-17:20", "cs408", csExerciseTitle(planningProgress), 60),
     makeTask(
       date,
       "17:20-17:50",
       "cs408",
-      state.progress.cs408.dataStructureExerciseRate < 100
+      planningProgress.cs408.dataStructureExerciseRate < 100
         ? "补数据结构遗留题30分钟"
         : "408错题整理：数据结构/操作系统",
       30
     ),
-    makeTask(date, "19:20-21:20", "math", mathExerciseTitle(state.progress), 120),
+    makeTask(date, "19:20-21:20", "math", mathExerciseTitle(planningProgress), 120),
     makeTask(
       date,
       readingActive ? "21:20-21:40" : "21:20-22:00",
@@ -430,8 +526,15 @@ export function generateSuggestion(record: DailyRecord) {
 
 export function applyProgressFromRecord(progress: ProgressState, record: DailyRecord): ProgressState {
   const completed = record.tasks.filter((task) => task.completed);
+  const pendingMathLecture = unfinishedMathLectureFromRecord(record);
   const hasMathLesson = completed.some(
     (task) => task.subject === "math" && task.title.includes("张宇30讲") && task.title.includes("新内容")
+  );
+  const completedMathLecture = mentionedMathLecture(
+    completed
+      .filter((task) => task.subject === "math")
+      .map((task) => task.title)
+      .join(" ")
   );
   const hasMathPractice = completed.some((task) => task.subject === "math" && task.title.includes("1000题"));
   const hasWord = completed.some((task) => task.subject === "english" && task.title.includes("单词"));
@@ -449,9 +552,13 @@ export function applyProgressFromRecord(progress: ProgressState, record: DailyRe
     english: { ...progress.english }
   };
 
-  if (hasMathLesson && !next.math.calculusDone) {
-    next.math.currentLecture = Math.min(18, next.math.currentLecture + 1);
-    next.math.calculusDone = next.math.currentLecture >= 18;
+  if (pendingMathLecture) {
+    next.math.currentLecture = pendingMathLecture;
+    next.math.calculusDone = false;
+  } else if (hasMathLesson && !next.math.calculusDone) {
+    const finishedLecture = completedMathLecture ?? next.math.currentLecture;
+    next.math.currentLecture = Math.min(18, finishedLecture >= 18 ? 18 : finishedLecture + 1);
+    next.math.calculusDone = finishedLecture >= 18;
   } else if (hasMathLesson && !next.math.linearDone) {
     next.math.linearStarted = true;
     next.math.linearUnit = Math.min(6, (next.math.linearUnit ?? 0) + 1);
@@ -557,8 +664,9 @@ export function getWeekMinutes(state: AppState, endDate = todayKey()) {
 }
 
 export function getOverallProgress(progress: ProgressState) {
+  const completedCalculusLectures = progress.math.calculusDone ? 18 : Math.max(0, progress.math.currentLecture - 1);
   const math =
-    (Math.min(progress.math.currentLecture, 18) / 18) * 45 +
+    (Math.min(completedCalculusLectures, 18) / 18) * 45 +
     (progress.math.linearDone ? 25 : Math.min((progress.math.linearUnit ?? 0) / 6, 1) * 25) +
     (progress.math.probabilityDone ? 20 : Math.min((progress.math.probabilityUnit ?? 0) / 6, 1) * 20) +
     Math.min(progress.math.zhangyu1000Done / 90, 1) * 10;
@@ -685,7 +793,7 @@ export function buildDailyStrategy(state: AppState, date = todayKey()) {
   const targetGaps = buildTargetGapRows(state, date).filter((row) => row.status !== "正常");
   const overdueWeakPoints = getReviewReminders(state, date, 3);
   const adjustmentMessages = todayRecord?.adjustmentMessages ?? buildAdjustmentMessages(state, date);
-  const curriculumFocuses = getCurriculumFocuses(state.progress, date);
+  const curriculumFocuses = getCurriculumFocusesForState(state, date);
   const priorities: string[] = [];
   const timeAdvice: string[] = [];
   const guardrails: string[] = [];
@@ -889,10 +997,12 @@ function countRecentCompletedTasks(state: AppState, subject: Subject, matcher: (
 
 export function buildTargetGapRows(state: AppState, date = todayKey()) {
   const daysLeft = Math.max(daysUntil(state.settings.targetDate), 1);
+  const planningProgress = getPlanningProgress(state, date);
+  const completedCalculusLectures = planningProgress.math.calculusDone ? 18 : Math.max(0, planningProgress.math.currentLecture - 1);
   const mathRemaining =
-    Math.max(0, 18 - state.progress.math.currentLecture) +
-    (state.progress.math.linearDone ? 0 : 8) +
-    (state.progress.math.probabilityDone ? 0 : 6);
+    Math.max(0, 18 - completedCalculusLectures) +
+    (planningProgress.math.linearDone ? 0 : Math.max(0, 6 - (planningProgress.math.linearUnit ?? 0))) +
+    (planningProgress.math.probabilityDone ? 0 : Math.max(0, 6 - (planningProgress.math.probabilityUnit ?? 0)));
   const cs408Remaining =
     (state.progress.cs408.osDone ? 0 : Math.max(0, 9 - state.progress.cs408.osChapter)) +
     (state.progress.cs408.coaDone ? 0 : Math.max(0, 9 - state.progress.cs408.coaChapter)) +
@@ -903,11 +1013,11 @@ export function buildTargetGapRows(state: AppState, date = todayKey()) {
     {
       subject: "math" as Subject,
       label: "数学一",
-      current: state.progress.math.calculusDone
-        ? state.progress.math.linearDone
+      current: planningProgress.math.calculusDone
+        ? planningProgress.math.linearDone
           ? "线代已闭环，准备概率论/综合回顾"
-          : "线性代数阶段"
-        : `高数第${state.progress.math.currentLecture}讲附近`,
+          : `线性代数第${Math.min((planningProgress.math.linearUnit ?? 0) + 1, 6)}单元`
+        : `高数第${planningProgress.math.currentLecture}讲进行中`,
       remaining: `${mathRemaining}个推进单元`,
       requiredPace: mathRemaining / daysLeft,
       recentPace: countRecentCompletedTasks(state, "math", (title) => /新内容|张宇30讲|线性代数|概率论/.test(title)) / 7,

@@ -80,10 +80,10 @@ export function ProgressPage({ progress, onChange }: ProgressPageProps) {
             <CardTitle>数学一进度</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Field label="高数张宇30讲当前讲数">
+            <Field label="高数张宇30讲正在学习讲数">
               <Input
                 type="number"
-                min={0}
+                min={1}
                 max={18}
                 value={progress.math.currentLecture}
                 onChange={(event) =>

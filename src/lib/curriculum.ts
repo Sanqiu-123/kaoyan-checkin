@@ -328,10 +328,10 @@ function byOneBasedIndex(units: CurriculumUnit[], index: number) {
 
 export function getMathFocus(progress: ProgressState): CurriculumFocus {
   if (!progress.math.calculusDone) {
-    const nextLecture = Math.min(progress.math.currentLecture + 1, mathCalculusUnits.length);
+    const currentLecture = Math.max(1, Math.min(progress.math.currentLecture, mathCalculusUnits.length));
     return {
-      ...byOneBasedIndex(mathCalculusUnits, nextLecture),
-      statusText: `当前已到第${progress.math.currentLecture}讲，下一步推进第${nextLecture}讲`
+      ...byOneBasedIndex(mathCalculusUnits, currentLecture),
+      statusText: `当前正在第${currentLecture}讲，完成后再推进下一讲`
     };
   }
 

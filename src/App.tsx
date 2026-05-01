@@ -44,8 +44,22 @@ function isUntouchedGeneratedRecord(record?: DailyRecord) {
   );
 }
 
+function refreshTodayPlanIfUntouched(state: AppState) {
+  const date = todayKey();
+  const currentRecord = state.records[date];
+  if (currentRecord && !isUntouchedGeneratedRecord(currentRecord)) return state;
+
+  return {
+    ...state,
+    records: {
+      ...state.records,
+      [date]: generateDailyRecord(date, state)
+    }
+  };
+}
+
 export default function App() {
-  const [state, setState] = useState<AppState>(() => ensureTodayRecord(createInitialState()));
+  const [state, setState] = useState<AppState>(() => refreshTodayPlanIfUntouched(ensureTodayRecord(createInitialState())));
   const [hydrated, setHydrated] = useState(false);
   const [activePage, setActivePage] = useState<PageKey>("dashboard");
   const [cloudUserEmail, setCloudUserEmail] = useState<string | null>(null);
@@ -72,7 +86,7 @@ export default function App() {
     loadPersistedState()
       .then((persistedState) => {
         if (cancelled) return;
-        setState(ensureTodayRecord(persistedState));
+        setState(refreshTodayPlanIfUntouched(ensureTodayRecord(persistedState)));
         setHydrated(true);
       })
       .catch(() => {

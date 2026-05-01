@@ -121,11 +121,11 @@ export function SettingsPage({
           </CardHeader>
           <CardContent className="space-y-4">
             <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">当前数学讲数</span>
+              <span className="text-muted-foreground">当前正在学习的数学讲数</span>
               <Input
                 type="number"
-                min={0}
-                max={30}
+                min={1}
+                max={18}
                 value={progress.math.currentLecture}
                 onChange={(event) =>
                   onProgressChange({

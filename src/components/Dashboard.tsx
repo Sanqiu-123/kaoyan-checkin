@@ -29,11 +29,11 @@ import {
   getSubjectStats,
   getWeakPointStats,
   getWeekMinutes,
+  getCurriculumFocusesForState,
   subjectMeta
 } from "@/lib/studyData";
 import { percent } from "@/lib/utils";
 import { PageKey } from "@/components/AppShell";
-import { getCurriculumFocuses } from "@/lib/curriculum";
 
 interface DashboardProps {
   state: AppState;
@@ -93,7 +93,7 @@ export function Dashboard({ state, onNavigate }: DashboardProps) {
   const alerts = getDashboardAlerts(state);
   const daysLeft = daysUntil(state.settings.targetDate);
   const dailyStrategy = buildDailyStrategy(state, today);
-  const curriculumFocuses = getCurriculumFocuses(state.progress, today);
+  const curriculumFocuses = getCurriculumFocusesForState(state, today);
   const targetGapRows = buildTargetGapRows(state);
   const weakPointStats = getWeakPointStats(state);
   const reviewReminders = getReviewReminders(state, today, 4);
