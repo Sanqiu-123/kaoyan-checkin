@@ -114,16 +114,19 @@ export default async function handler(req: any, res: any) {
       body: JSON.stringify({
         model,
         temperature: 0.25,
-        max_tokens: 2600,
+        max_tokens: 5000,
+        response_format: {
+          type: "json_object"
+        },
         messages: [
           {
             role: "system",
             content:
-              "你是学习规划系统架构师。请只输出 JSON，不要 Markdown。输出字段必须是 title、goal、targetDate、subjects、units、strategy。subjects 每项包含 name、color。units 每项包含 subjectName、title、resource、focus、practice、estimatedDays。规划要能拆成每日打卡任务，单元不要过大，优先按教材章节/模块拆分。"
+              '你是学习规划系统架构师。请只输出合法 json，不要 Markdown。JSON 输出格式示例：{"title":"软考中级规划","goal":"在目标日期前完成教材、真题和错题复盘","targetDate":"2026-09-30","subjects":[{"name":"基础知识","color":"#2563eb"}],"units":[{"subjectName":"基础知识","title":"第1章 计算机系统基础","resource":"官方教程","focus":"理解核心概念","practice":"完成章节题并订正","estimatedDays":2}],"strategy":["先教材后真题","每周复盘错题"]}。输出字段必须是 title、goal、targetDate、subjects、units、strategy。subjects 每项包含 name、color。units 每项包含 subjectName、title、resource、focus、practice、estimatedDays。规划要能拆成每日打卡任务，单元不要过大，优先按教材章节/模块拆分。'
           },
           {
             role: "user",
-            content: `用户想创建一个独立学习打卡系统。\n目标日期：${targetDate || "用户未指定，请根据描述合理设置"}\n规划描述：${description}\n请生成可执行的完整规划蓝图。`
+            content: `请输出合法 json。用户想创建一个独立学习打卡系统。\n目标日期：${targetDate || "用户未指定，请根据描述合理设置"}\n规划描述：${description}\n请生成可执行的完整规划蓝图。`
           }
         ]
       })
@@ -146,4 +149,3 @@ export default async function handler(req: any, res: any) {
     sendJson(res, 500, { error: error instanceof Error ? error.message : "创建规划失败。" });
   }
 }
-

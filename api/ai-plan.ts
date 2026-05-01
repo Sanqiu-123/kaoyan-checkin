@@ -145,15 +145,18 @@ export default async function handler(req: any, res: any) {
         model,
         temperature: 0.3,
         max_tokens: 1800,
+        response_format: {
+          type: "json_object"
+        },
         messages: [
           {
             role: "system",
             content:
-              "你是人工智能专业考研学习规划助手。请只输出 JSON，不要 Markdown。输出字段必须是 summary、strategy、tasks、warnings。tasks 每项包含 time、subject、title、plannedMinutes、reason。subject 只能是 math、cs408、english、review。任务必须具体到教材章节、练习闭环和补弱点，避免空泛鼓励。"
+              '你是人工智能专业考研学习规划助手。请只输出合法 json，不要 Markdown。JSON 输出格式示例：{"summary":"今天优先补齐数学第5讲","strategy":["上午补课","晚上练题"],"tasks":[{"time":"09:00-10:20","subject":"math","title":"补张宇30讲第5讲剩余课程","plannedMinutes":80,"reason":"昨日未完成"}],"warnings":["不要直接推进第6讲"]}。输出字段必须是 summary、strategy、tasks、warnings。tasks 每项包含 time、subject、title、plannedMinutes、reason。subject 只能是 math、cs408、english、review。任务必须具体到教材章节、练习闭环和补弱点，避免空泛鼓励。'
           },
           {
             role: "user",
-            content: `请根据以下本地学习进度和用户的新需求，生成今天可以加入打卡系统的学习规划：\n${safeStringify(context)}`
+            content: `请输出合法 json。请根据以下本地学习进度和用户的新需求，生成今天可以加入打卡系统的学习规划：\n${safeStringify(context)}`
           }
         ]
       })
