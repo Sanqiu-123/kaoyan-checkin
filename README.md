@@ -20,6 +20,7 @@
 - 设置：目标日期、每日学习时间、深色模式、备份导出/导入、清空数据二次确认。
 - PWA：部署到 HTTPS 后，可以在手机浏览器中“添加到主屏幕”，像 App 一样打开。
 - 可选云同步：配置 Supabase 后支持账号登录、上传本地到云端、从云端拉取和自动同步。
+- DeepSeek 学习规划：配置 `DEEPSEEK_API_KEY` 后，首页可输入临时学习目标，让 DeepSeek 结合当前进度生成任务草案并一键加入今日任务。
 - 自动调整建议：保存打卡后，根据各科完成情况生成第二天学习建议；第二天任务生成时会参考前几天打卡结果。
 
 ## 安装依赖
@@ -70,6 +71,47 @@ npm run build
 10. 所有数据保存在当前浏览器的 `IndexedDB` 中。旧版 `localStorage` 数据会在第一次打开时自动迁移。
 11. 在“设置”页可以导出 JSON 备份，也可以从备份文件导入恢复。建议把备份文件放到本地磁盘和网盘中各留一份。
 12. 如果配置了 Supabase，可在“设置 -> 账号与云端同步”登录账号，并选择手动或自动同步。
+13. 如果配置了 DeepSeek，可在首页“DeepSeek 学习规划”输入今天的新目标或限制，生成任务草案后加入今日任务。
+
+## DeepSeek AI 规划
+
+DeepSeek 是可选增强功能。本系统仍然以本地规则和本地数据保存为主：
+
+- 未配置 DeepSeek 时，所有打卡、任务生成、历史记录和进度管理照常可用。
+- DeepSeek API Key 不会写入 React 前端，必须放在 Vercel 环境变量或本地 Serverless 环境变量中。
+- 默认模型为 `deepseek-v4-pro`。如果希望尽量自动使用官方模型列表中的较新模型，可以设置 `DEEPSEEK_AUTO_MODEL=true`。
+- “最新模型”无法永久保证，因为模型命名和下线规则由 DeepSeek 官方决定；本项目通过环境变量和自动模型选择尽量减少后续改代码的次数。
+
+### Vercel 配置方式
+
+1. 打开 Vercel 项目。
+2. 进入 `Settings -> Environment Variables`。
+3. 添加：
+
+```env
+DEEPSEEK_API_KEY=你的 DeepSeek API Key
+DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_AUTO_MODEL=false
+AI_ACCESS_CODE=自己设置一个访问口令
+```
+
+4. 保存后重新部署一次。
+5. 打开网站首页，在“AI访问口令”中输入同一个 `AI_ACCESS_CODE`。
+6. 使用“DeepSeek 学习规划”。
+
+如果想让系统每次优先查询 DeepSeek 官方 `/models` 列表，并选择版本号更高的 `deepseek-*` 模型，可以把：
+
+```env
+DEEPSEEK_AUTO_MODEL=true
+```
+
+保留 `DEEPSEEK_MODEL` 时会优先使用手动指定模型；想自动选择时可以删除 `DEEPSEEK_MODEL`。
+
+强烈建议配置 `AI_ACCESS_CODE`。否则虽然 DeepSeek API Key 不会暴露，但别人如果知道你的部署地址，仍可能请求 `/api/ai-plan` 消耗你的额度。
+
+### 本地说明
+
+普通 `npm run dev` 只启动 Vite 前端，不会启动 Vercel Serverless API。因此本地开发时 DeepSeek 按钮可能提示未找到接口。部署到 Vercel 后即可使用。
 
 ## 补打卡说明
 

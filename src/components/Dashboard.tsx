@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AlertTriangle, ArrowRight, BookOpen, BrainCircuit, CheckCircle2, Clock, NotebookPen, Target } from "lucide-react";
 import {
   Bar,
@@ -15,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { AppState } from "@/types/study";
 import { addDays, daysUntil, displayDate, todayKey } from "@/lib/date";
 import {
@@ -34,10 +37,12 @@ import {
 } from "@/lib/studyData";
 import { percent } from "@/lib/utils";
 import { PageKey } from "@/components/AppShell";
+import { AiPlanResult, AiTaskDraft, requestDeepSeekPlan } from "@/lib/aiPlanner";
 
 interface DashboardProps {
   state: AppState;
   onNavigate: (page: PageKey) => void;
+  onApplyAiTasks: (tasks: AiTaskDraft[]) => void;
 }
 
 function MetricCard({
@@ -73,7 +78,12 @@ function taskStartMinutes(time: string) {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
-export function Dashboard({ state, onNavigate }: DashboardProps) {
+export function Dashboard({ state, onNavigate, onApplyAiTasks }: DashboardProps) {
+  const [aiGoal, setAiGoal] = useState("");
+  const [aiPlan, setAiPlan] = useState<AiPlanResult | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiAccessCode, setAiAccessCode] = useState(() => localStorage.getItem("kaoyan-ai-access-code") ?? "");
   const today = todayKey();
   const yesterday = addDays(today, -1);
   const record = state.records[today];
@@ -97,6 +107,24 @@ export function Dashboard({ state, onNavigate }: DashboardProps) {
   const targetGapRows = buildTargetGapRows(state);
   const weakPointStats = getWeakPointStats(state);
   const reviewReminders = getReviewReminders(state, today, 4);
+
+  async function generateAiPlan() {
+    setAiBusy(true);
+    setAiError("");
+    try {
+      setAiPlan(await requestDeepSeekPlan(state, today, aiGoal, aiAccessCode));
+    } catch (error) {
+      setAiPlan(null);
+      setAiError(error instanceof Error ? error.message : "DeepSeek 规划失败。");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  function updateAiAccessCode(value: string) {
+    setAiAccessCode(value);
+    localStorage.setItem("kaoyan-ai-access-code", value);
+  }
 
   return (
     <div className="page-shell">
@@ -175,6 +203,96 @@ export function Dashboard({ state, onNavigate }: DashboardProps) {
               </div>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card className="border-blue-200 dark:border-blue-900">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BrainCircuit className="h-5 w-5 text-blue-600" />
+            DeepSeek 学习规划
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            输入新的学习目标、临时时间限制或卡点，DeepSeek 会结合当前进度和近期打卡生成任务草案。
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            value={aiGoal}
+            onChange={(event) => setAiGoal(event.target.value)}
+            placeholder="例如：今天下午只有3小时，第5讲还差两节课，408进程同步不会，帮我重排今天任务。"
+          />
+          <Input
+            type="password"
+            value={aiAccessCode}
+            onChange={(event) => updateAiAccessCode(event.target.value)}
+            placeholder="AI访问口令，可选：如果 Vercel 配置了 AI_ACCESS_CODE，请填这里"
+          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              会把当前进度、近期记录和薄弱点发送给 DeepSeek；建议配置 AI_ACCESS_CODE 防止他人消耗额度。
+            </p>
+            <Button onClick={generateAiPlan} disabled={aiBusy || !aiGoal.trim()}>
+              <BrainCircuit className="h-4 w-4" />
+              {aiBusy ? "规划中" : "生成AI规划"}
+            </Button>
+          </div>
+          {aiError && (
+            <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-100">
+              {aiError}
+            </div>
+          )}
+          {aiPlan && (
+            <div className="space-y-3 rounded-lg border border-border p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold">AI建议</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{aiPlan.summary}</p>
+                </div>
+                <Badge className="border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
+                  {aiPlan.model}
+                </Badge>
+              </div>
+              {aiPlan.strategy.length > 0 && (
+                <div className="grid gap-2 lg:grid-cols-3">
+                  {aiPlan.strategy.slice(0, 3).map((item) => (
+                    <p key={item} className="rounded-lg bg-muted/50 p-2 text-sm text-muted-foreground">
+                      {item}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {aiPlan.tasks.length > 0 && (
+                <div className="space-y-2">
+                  {aiPlan.tasks.map((task, index) => (
+                    <div
+                      key={`${task.title}-${index}`}
+                      className={`rounded-lg border border-border border-l-4 p-3 text-sm ${subjectMeta[task.subject].borderClass}`}
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-medium">{task.title}</p>
+                          {task.reason && <p className="mt-1 text-xs text-muted-foreground">{task.reason}</p>}
+                        </div>
+                        <Badge className={subjectMeta[task.subject].badgeClass}>
+                          {task.time} / {task.plannedMinutes}分钟
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                  <Button variant="outline" onClick={() => onApplyAiTasks(aiPlan.tasks)}>
+                    <CheckCircle2 className="h-4 w-4" />
+                    加入今日任务
+                  </Button>
+                </div>
+              )}
+              {aiPlan.warnings.length > 0 && (
+                <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+                  {aiPlan.warnings.join(" ")}
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
