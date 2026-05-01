@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowRight, BrainCircuit, CheckCircle2, Pause, Play, Plus, Save } from "lucide-react";
+import { ArrowRight, BrainCircuit, CheckCircle2, Pause, Play, Plus, Save, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -103,6 +103,14 @@ export function PlanWorkspacePage({ plans, onChange, onNavigate }: PlanWorkspace
 
   function togglePause(plan: CustomStudyPlan) {
     replacePlan(setCustomPlanPaused(plan, !plan.paused));
+  }
+
+  function deletePlan(plan: CustomStudyPlan) {
+    const ok = window.confirm(`确定删除“${plan.title}”吗？该规划的任务和历史记录都会删除，不会影响考研主规划。`);
+    if (!ok) return;
+    const nextPlans = plans.filter((item) => item.id !== plan.id);
+    onChange(nextPlans);
+    setSelectedPlanId(nextPlans[0]?.id ?? "");
   }
 
   const record = selectedPlan?.records[today];
@@ -236,10 +244,16 @@ export function PlanWorkspacePage({ plans, onChange, onNavigate }: PlanWorkspace
                     <CardTitle>{selectedPlan.title}</CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">{selectedPlan.goal}</p>
                   </div>
-                  <Button variant="outline" onClick={() => togglePause(selectedPlan)}>
-                    {selectedPlan.paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                    {selectedPlan.paused ? "继续" : "暂停"}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => togglePause(selectedPlan)}>
+                      {selectedPlan.paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                      {selectedPlan.paused ? "继续" : "暂停"}
+                    </Button>
+                    <Button variant="outline" onClick={() => deletePlan(selectedPlan)} title="删除规划">
+                      <Trash2 className="h-4 w-4" />
+                      删除
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
@@ -402,4 +416,3 @@ export function PlanWorkspacePage({ plans, onChange, onNavigate }: PlanWorkspace
     </div>
   );
 }
-
