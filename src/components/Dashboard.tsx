@@ -33,6 +33,7 @@ import {
 } from "@/lib/studyData";
 import { percent } from "@/lib/utils";
 import { PageKey } from "@/components/AppShell";
+import { getCurriculumFocuses } from "@/lib/curriculum";
 
 interface DashboardProps {
   state: AppState;
@@ -92,6 +93,7 @@ export function Dashboard({ state, onNavigate }: DashboardProps) {
   const alerts = getDashboardAlerts(state);
   const daysLeft = daysUntil(state.settings.targetDate);
   const dailyStrategy = buildDailyStrategy(state, today);
+  const curriculumFocuses = getCurriculumFocuses(state.progress, today);
   const targetGapRows = buildTargetGapRows(state);
   const weakPointStats = getWeakPointStats(state);
   const reviewReminders = getReviewReminders(state, today, 4);
@@ -148,6 +150,31 @@ export function Dashboard({ state, onNavigate }: DashboardProps) {
               </p>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>今日教材焦点</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 lg:grid-cols-3">
+          {curriculumFocuses.map((focus) => (
+            <div key={focus.id} className={`rounded-lg border border-border border-l-4 p-3 ${subjectMeta[focus.subject].borderClass}`}>
+              <div className="flex items-center justify-between gap-2">
+                <Badge className={subjectMeta[focus.subject].badgeClass}>{subjectMeta[focus.subject].name}</Badge>
+                <span className="text-xs text-muted-foreground">{focus.stage}</span>
+              </div>
+              <p className="mt-3 text-sm font-semibold">
+                {focus.resource}：{focus.unit}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">{focus.title}</p>
+              <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                <p className="rounded-lg bg-muted/50 p-2">重点：{focus.focus}</p>
+                <p className="rounded-lg bg-muted/50 p-2">练习：{focus.practice}</p>
+                <p className="rounded-lg bg-muted/50 p-2">检查：{focus.checkpoint}</p>
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
 

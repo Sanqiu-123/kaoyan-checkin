@@ -31,8 +31,10 @@ export interface MathProgress {
   currentLecture: number;
   calculusDone: boolean;
   linearStarted: boolean;
+  linearUnit: number;
   linearDone: boolean;
   probabilityStarted: boolean;
+  probabilityUnit: number;
   probabilityDone: boolean;
   zhangyu1000Done: number;
   mistakeCount: number;

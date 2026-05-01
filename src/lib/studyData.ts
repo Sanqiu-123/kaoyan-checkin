@@ -9,6 +9,7 @@ import {
   WeakPoint
 } from "@/types/study";
 import { addDays, compactDate, daysUntil, formatDateKey, isSameOrAfter, todayKey, toDate } from "@/lib/date";
+import { getCs408Focus, getCurriculumFocuses, getEnglishFocus, getMathFocus } from "@/lib/curriculum";
 import { clamp, uid } from "@/lib/utils";
 
 export const STORAGE_KEY = "ai-kaoyan-checkin-state-v1";
@@ -81,8 +82,10 @@ export const defaultProgress: ProgressState = {
     currentLecture: 5,
     calculusDone: false,
     linearStarted: false,
+    linearUnit: 0,
     linearDone: false,
     probabilityStarted: false,
+    probabilityUnit: 0,
     probabilityDone: false,
     zhangyu1000Done: 18,
     mistakeCount: 0
@@ -196,44 +199,26 @@ function makeTask(
 }
 
 function mathNewLessonTitle(progress: ProgressState, adjusted: boolean) {
-  if (!progress.math.calculusDone && progress.math.currentLecture < 18) {
-    const base = `张宇30讲高数第${Math.min(progress.math.currentLecture + 1, 18)}讲新内容`;
-    return adjusted ? `${base}少量推进，优先补昨日薄弱点` : base;
-  }
-  if (!progress.math.linearDone) {
-    return progress.math.linearStarted ? "线性代数一轮新内容推进" : "线性代数一轮启动：基础概念与例题";
-  }
-  if (!progress.math.probabilityDone) {
-    return progress.math.probabilityStarted ? "概率论一轮新内容推进" : "概率论一轮启动：随机事件与概率";
-  }
-  return "数学一轮回顾：高数重点章节与错题";
+  const focus = getMathFocus(progress);
+  const base = `${focus.resource}：${focus.unit} ${focus.title}`;
+  if (adjusted) return `${base}少量推进，优先补昨日薄弱点`;
+  return `${base}新内容`;
 }
 
 function mathExerciseTitle(progress: ProgressState) {
-  if (!progress.math.calculusDone && progress.math.currentLecture < 18) {
-    return `张宇1000题：高数第${Math.min(progress.math.currentLecture + 1, 18)}讲对应练习`;
-  }
-  if (!progress.math.linearDone) return "线性代数对应章节练习";
-  if (!progress.math.probabilityDone) return "概率论对应章节练习";
-  return "数学综合错题二刷与方法归纳";
+  const focus = getMathFocus(progress);
+  return focus.practice;
 }
 
 function csNewLessonTitle(progress: ProgressState, adjusted: boolean) {
-  if (!progress.cs408.osDone) {
-    return adjusted
-      ? `王道操作系统第${progress.cs408.osChapter}章教材复盘+少量新课`
-      : `王道操作系统第${progress.cs408.osChapter}章新课+教材`;
-  }
-  if (!progress.cs408.coaDone) return `王道计算机组成原理第${progress.cs408.coaChapter}章新课+教材`;
-  if (!progress.cs408.networkDone) return `王道计算机网络第${progress.cs408.networkChapter}章新课+教材`;
-  return "408四科整体回顾：教材框架+薄弱题";
+  const focus = getCs408Focus(progress);
+  const base = `${focus.resource}：${focus.unit} ${focus.title}`;
+  return adjusted ? `${base}教材复盘+少量新课` : `${base}新课+教材`;
 }
 
 function csExerciseTitle(progress: ProgressState) {
-  if (!progress.cs408.osDone) return "操作系统对应章节练习";
-  if (!progress.cs408.coaDone) return "计算机组成原理对应章节练习";
-  if (!progress.cs408.networkDone) return "计算机网络对应章节练习";
-  return "408综合练习与错题整理";
+  const focus = getCs408Focus(progress);
+  return focus.practice;
 }
 
 export function getSubjectStats(record?: DailyRecord): SubjectStat[] {
@@ -313,6 +298,9 @@ export function generateDailyRecord(date: string, state: AppState): DailyRecord 
   const mathAdjusted = adjustmentMessages.some((message) => message.includes("数学完成率较低"));
   const csAdjusted = adjustmentMessages.some((message) => message.includes("408需要及时做题"));
   const englishAdjusted = adjustmentMessages.some((message) => message.includes("英语一不能只背单词"));
+  const mathFocus = getMathFocus(state.progress);
+  const cs408Focus = getCs408Focus(state.progress);
+  const englishFocus = getEnglishFocus(state.progress, date);
   const dueWeakPoints = state.weakPoints
     .filter((item) => item.status !== "已掌握" && item.nextReviewDate <= date)
     .sort((a, b) => a.nextReviewDate.localeCompare(b.nextReviewDate) || a.createdAt.localeCompare(b.createdAt))
@@ -330,7 +318,7 @@ export function generateDailyRecord(date: string, state: AppState): DailyRecord 
       20
     ),
     makeTask(date, "09:00-11:30", "math", mathNewLessonTitle(state.progress, mathAdjusted), mathAdjusted ? 95 : 150),
-    makeTask(date, "11:30-12:00", "math", "数学知识点整理：例题理解+方法卡片", 30),
+    makeTask(date, "11:30-12:00", "math", `数学知识点整理：${mathFocus.checkpoint}`, 30),
     makeTask(date, "14:00-16:20", "cs408", csNewLessonTitle(state.progress, csAdjusted), csAdjusted ? 95 : 140),
     makeTask(date, "16:20-17:20", "cs408", csExerciseTitle(state.progress), 60),
     makeTask(
@@ -347,13 +335,13 @@ export function generateDailyRecord(date: string, state: AppState): DailyRecord 
       date,
       readingActive ? "21:20-21:40" : "21:20-22:00",
       "english",
-      englishAdjusted ? "恢复田静每日一句：长难句拆分+翻译复盘" : "田静每日一句/长难句分析",
+      englishAdjusted ? `恢复田静每日一句：${englishFocus.checkpoint}` : `田静每日一句/长难句：${englishFocus.checkpoint}`,
       readingActive ? 20 : 40
     )
   ];
 
   if (readingActive) {
-    tasks.push(makeTask(date, "21:40-22:00", "english", "英语一早年真题阅读半篇精读", 20));
+    tasks.push(makeTask(date, "21:40-22:00", "english", englishFocus.practice, 20));
   }
 
   if (mathAdjusted) {
@@ -361,7 +349,7 @@ export function generateDailyRecord(date: string, state: AppState): DailyRecord 
   }
 
   if (csAdjusted) {
-    tasks.push(makeTask(date, "碎片时间", "cs408", "王道教材复习+错题回顾：避免只听课不做题", 25));
+    tasks.push(makeTask(date, "碎片时间", "cs408", `王道教材复习+错题回顾：${cs408Focus.checkpoint}`, 25));
   }
 
   if (dueWeakPoints.length > 0) {
@@ -464,6 +452,14 @@ export function applyProgressFromRecord(progress: ProgressState, record: DailyRe
   if (hasMathLesson && !next.math.calculusDone) {
     next.math.currentLecture = Math.min(18, next.math.currentLecture + 1);
     next.math.calculusDone = next.math.currentLecture >= 18;
+  } else if (hasMathLesson && !next.math.linearDone) {
+    next.math.linearStarted = true;
+    next.math.linearUnit = Math.min(6, (next.math.linearUnit ?? 0) + 1);
+    next.math.linearDone = next.math.linearUnit >= 6;
+  } else if (hasMathLesson && !next.math.probabilityDone) {
+    next.math.probabilityStarted = true;
+    next.math.probabilityUnit = Math.min(6, (next.math.probabilityUnit ?? 0) + 1);
+    next.math.probabilityDone = next.math.probabilityUnit >= 6;
   }
   if (hasMathPractice) next.math.zhangyu1000Done += 1;
   if (hasWord) next.english.wordDays += 1;
@@ -563,8 +559,8 @@ export function getWeekMinutes(state: AppState, endDate = todayKey()) {
 export function getOverallProgress(progress: ProgressState) {
   const math =
     (Math.min(progress.math.currentLecture, 18) / 18) * 45 +
-    (progress.math.linearDone ? 25 : progress.math.linearStarted ? 10 : 0) +
-    (progress.math.probabilityDone ? 20 : progress.math.probabilityStarted ? 8 : 0) +
+    (progress.math.linearDone ? 25 : Math.min((progress.math.linearUnit ?? 0) / 6, 1) * 25) +
+    (progress.math.probabilityDone ? 20 : Math.min((progress.math.probabilityUnit ?? 0) / 6, 1) * 20) +
     Math.min(progress.math.zhangyu1000Done / 90, 1) * 10;
 
   const cs408 =
@@ -689,6 +685,7 @@ export function buildDailyStrategy(state: AppState, date = todayKey()) {
   const targetGaps = buildTargetGapRows(state, date).filter((row) => row.status !== "正常");
   const overdueWeakPoints = getReviewReminders(state, date, 3);
   const adjustmentMessages = todayRecord?.adjustmentMessages ?? buildAdjustmentMessages(state, date);
+  const curriculumFocuses = getCurriculumFocuses(state.progress, date);
   const priorities: string[] = [];
   const timeAdvice: string[] = [];
   const guardrails: string[] = [];
@@ -696,6 +693,12 @@ export function buildDailyStrategy(state: AppState, date = todayKey()) {
   if (!yesterday) {
     priorities.push("今天先完整跑一遍默认计划，晚上保存打卡，为后续自动调整建立基线。");
   }
+
+  priorities.push(
+    `教材焦点：数学推进${curriculumFocuses[0].unit}，408推进${curriculumFocuses[1].unit}，英语保持${curriculumFocuses[2].unit}。`
+  );
+  timeAdvice.push(`上午数学检查点：${curriculumFocuses[0].checkpoint}。`);
+  timeAdvice.push(`下午408检查点：${curriculumFocuses[1].checkpoint}。`);
 
   if (overdueWeakPoints.length > 0) {
     priorities.push(`先处理${overdueWeakPoints.length}个到期薄弱点：${overdueWeakPoints.map((item) => item.title).join("、")}。`);
