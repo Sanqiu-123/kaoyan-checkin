@@ -4,6 +4,7 @@ import {
   CheckSquare,
   ClipboardList,
   Home,
+  Layers,
   Moon,
   NotebookPen,
   Settings,
@@ -14,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { displayDate, todayKey } from "@/lib/date";
 import { cn } from "@/lib/utils";
 
-export type PageKey = "dashboard" | "checkin" | "history" | "progress" | "weakness" | "stats" | "settings";
+export type PageKey = "dashboard" | "checkin" | "history" | "progress" | "weakness" | "stats" | "plans" | "settings";
 
 interface AppShellProps {
   activePage: PageKey;
@@ -31,6 +32,7 @@ const navItems: { key: PageKey; label: string; icon: React.ElementType }[] = [
   { key: "progress", label: "进度管理", icon: TrendingUp },
   { key: "weakness", label: "薄弱点", icon: NotebookPen },
   { key: "stats", label: "统计分析", icon: BarChart3 },
+  { key: "plans", label: "规划空间", icon: Layers },
   { key: "settings", label: "设置", icon: Settings }
 ];
 

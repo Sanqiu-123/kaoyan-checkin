@@ -145,7 +145,8 @@ export function createInitialState(): AppState {
     settings: defaultSettings,
     cloudSync: defaultCloudSync,
     adjustmentLogs: [],
-    weakPoints: []
+    weakPoints: [],
+    customPlans: []
   };
 }
 
@@ -163,7 +164,8 @@ export function normalizeState(parsed?: Partial<AppState> | null): AppState {
     },
     records: parsed.records ?? {},
     adjustmentLogs: parsed.adjustmentLogs ?? [],
-    weakPoints: parsed.weakPoints ?? []
+    weakPoints: parsed.weakPoints ?? [],
+    customPlans: parsed.customPlans ?? []
   };
 }
 

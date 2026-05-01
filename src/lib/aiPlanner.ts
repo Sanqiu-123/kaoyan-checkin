@@ -1,4 +1,5 @@
 import { AppState, Subject } from "@/types/study";
+import { CustomPlanBlueprint } from "@/lib/customPlans";
 
 export interface AiTaskDraft {
   time: string;
@@ -58,4 +59,29 @@ export async function requestDeepSeekPlan(
   }
 
   return body as AiPlanResult;
+}
+
+export async function requestDeepSeekCustomPlan(
+  description: string,
+  targetDate: string,
+  accessCode?: string
+): Promise<{ model: string; plan: CustomPlanBlueprint }> {
+  const response = await fetch("/api/create-plan", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(accessCode ? { "x-ai-access-code": accessCode } : {})
+    },
+    body: JSON.stringify({
+      description,
+      targetDate
+    })
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error ?? "DeepSeek 创建规划失败。");
+  }
+
+  return body as { model: string; plan: CustomPlanBlueprint };
 }

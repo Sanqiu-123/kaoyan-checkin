@@ -7,7 +7,8 @@ import { ProgressPage } from "@/components/ProgressPage";
 import { SettingsPage } from "@/components/SettingsPage";
 import { StatsPage } from "@/components/StatsPage";
 import { WeakPointsPage } from "@/components/WeakPointsPage";
-import { AppState, DailyRecord, ProgressState, Settings, StudyTask, WeakPoint } from "@/types/study";
+import { PlanWorkspacePage } from "@/components/PlanWorkspacePage";
+import { AppState, CustomStudyPlan, DailyRecord, ProgressState, Settings, StudyTask, WeakPoint } from "@/types/study";
 import { todayKey } from "@/lib/date";
 import {
   applyProgressFromRecord,
@@ -76,9 +77,10 @@ export default function App() {
         progress: state.progress,
         settings: state.settings,
         adjustmentLogs: state.adjustmentLogs,
-        weakPoints: state.weakPoints
+        weakPoints: state.weakPoints,
+        customPlans: state.customPlans
       }),
-    [state.records, state.progress, state.settings, state.adjustmentLogs, state.weakPoints]
+    [state.records, state.progress, state.settings, state.adjustmentLogs, state.weakPoints, state.customPlans]
   );
 
   useEffect(() => {
@@ -260,6 +262,10 @@ export default function App() {
     setState((current) => ({ ...current, weakPoints }));
   }
 
+  function updateCustomPlans(customPlans: CustomStudyPlan[]) {
+    setState((current) => ({ ...current, customPlans }));
+  }
+
   function resetState() {
     const fresh = ensureTodayRecord(createInitialState());
     void deletePersistedState();
@@ -425,6 +431,7 @@ export default function App() {
       {activePage === "progress" && <ProgressPage progress={state.progress} onChange={updateProgress} />}
       {activePage === "weakness" && <WeakPointsPage state={state} onChange={updateWeakPoints} />}
       {activePage === "stats" && <StatsPage state={state} />}
+      {activePage === "plans" && <PlanWorkspacePage plans={state.customPlans} onChange={updateCustomPlans} onNavigate={setActivePage} />}
       {activePage === "settings" && (
         <SettingsPage
           state={state}
