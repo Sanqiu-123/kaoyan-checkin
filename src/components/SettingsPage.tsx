@@ -3,7 +3,9 @@ import { Cloud, CloudOff, Download, DownloadCloud, LogIn, LogOut, RotateCcw, Sav
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { AppState, CloudSyncState, ProgressState, Settings } from "@/types/study";
+import { Select } from "@/components/ui/select";
+import { AppState, CloudSyncState, ProgressState, Settings, StudyPhase } from "@/types/study";
+import { phaseMeta } from "@/lib/studyData";
 
 interface SettingsPageProps {
   state: AppState;
@@ -98,6 +100,19 @@ export function SettingsPage({
                 value={settings.dailyStudyHours}
                 onChange={(event) => onSettingsChange({ ...settings, dailyStudyHours: Number(event.target.value) })}
               />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">当前复习阶段</span>
+              <Select
+                value={settings.studyPhase}
+                onChange={(event) => onSettingsChange({ ...settings, studyPhase: event.target.value as StudyPhase })}
+              >
+                {(["first", "second", "sprint"] as StudyPhase[]).map((phase) => (
+                  <option key={phase} value={phase}>
+                    {phaseMeta[phase].label}
+                  </option>
+                ))}
+              </Select>
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input

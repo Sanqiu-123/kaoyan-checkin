@@ -32,7 +32,11 @@ import {
   getSubjectStats,
   getWeakPointStats,
   getWeekMinutes,
-  getCurriculumFocusesForState,
+  getDailyFocusCards,
+  getTaskStatus,
+  isTaskDone,
+  isTaskPartial,
+  phaseMeta,
   subjectMeta
 } from "@/lib/studyData";
 import { percent } from "@/lib/utils";
@@ -89,7 +93,11 @@ export function Dashboard({ state, onNavigate, onApplyAiTasks }: DashboardProps)
   const record = state.records[today];
   const yesterdayRecord = state.records[yesterday];
   const totalTasks = record?.tasks.length ?? 0;
-  const completedTasks = record?.tasks.filter((task) => task.completed).length ?? 0;
+  const completedTasks = record?.tasks.filter(isTaskDone).length ?? 0;
+  const partialTasks = record?.tasks.filter(isTaskPartial).length ?? 0;
+  const savedAtText = record?.savedAt
+    ? new Date(record.savedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : "";
   const todayTasks = [...(record?.tasks ?? [])].sort(
     (a, b) => taskStartMinutes(a.time) - taskStartMinutes(b.time) || a.time.localeCompare(b.time)
   );
@@ -103,7 +111,8 @@ export function Dashboard({ state, onNavigate, onApplyAiTasks }: DashboardProps)
   const alerts = getDashboardAlerts(state);
   const daysLeft = daysUntil(state.settings.targetDate);
   const dailyStrategy = buildDailyStrategy(state, today);
-  const curriculumFocuses = getCurriculumFocusesForState(state, today);
+  const focusCards = getDailyFocusCards(state, today);
+  const phase = state.settings.studyPhase;
   const targetGapRows = buildTargetGapRows(state);
   const weakPointStats = getWeakPointStats(state);
   const reviewReminders = getReviewReminders(state, today, 4);
@@ -130,12 +139,12 @@ export function Dashboard({ state, onNavigate, onApplyAiTasks }: DashboardProps)
     <div className="page-shell">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          label="距离7月1日"
-          value={daysLeft >= 0 ? `${daysLeft}天` : "已进入强化"}
+          label="距离目标日"
+          value={daysLeft >= 0 ? `${daysLeft}天` : phaseMeta[phase].shortLabel}
           helper={`目标日期：${state.settings.targetDate}`}
           icon={Target}
         />
-        <MetricCard label="今日任务" value={`${completedTasks}/${totalTasks}`} helper="已完成/总任务" icon={CheckCircle2} />
+        <MetricCard label="今日任务" value={`${completedTasks}/${totalTasks}`} helper={`完成/总任务，部分完成 ${partialTasks} 项`} icon={CheckCircle2} />
         <MetricCard label="今日完成率" value={percent(completionRate)} helper="保存后会生成建议" icon={BookOpen} />
         <MetricCard label="本周学习时长" value={`${weekHours}小时`} helper="最近7天累计" icon={Clock} />
       </div>
@@ -149,9 +158,12 @@ export function Dashboard({ state, onNavigate, onApplyAiTasks }: DashboardProps)
             </CardTitle>
             <p className="mt-2 text-sm text-muted-foreground">{dailyStrategy.headline}</p>
           </div>
-          <Badge className="border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
-            {dailyStrategy.yesterdayRate === null ? "首次基线" : `昨日${dailyStrategy.yesterdayRate}%`}
-          </Badge>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Badge className={phaseMeta[phase].badgeClass}>{phaseMeta[phase].shortLabel}</Badge>
+            <Badge className="border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
+              {dailyStrategy.yesterdayRate === null ? "首次基线" : `昨日${dailyStrategy.yesterdayRate}%`}
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-3">
           <div className="space-y-2">
@@ -183,10 +195,10 @@ export function Dashboard({ state, onNavigate, onApplyAiTasks }: DashboardProps)
 
       <Card>
         <CardHeader>
-          <CardTitle>今日教材焦点</CardTitle>
+          <CardTitle>{phase === "first" ? "今日教材焦点" : "今日强化焦点"}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 lg:grid-cols-3">
-          {curriculumFocuses.map((focus) => (
+          {focusCards.map((focus) => (
             <div key={focus.id} className={`rounded-lg border border-border border-l-4 p-3 ${subjectMeta[focus.subject].borderClass}`}>
               <div className="flex items-center justify-between gap-2">
                 <Badge className={subjectMeta[focus.subject].badgeClass}>{subjectMeta[focus.subject].name}</Badge>
@@ -322,8 +334,8 @@ export function Dashboard({ state, onNavigate, onApplyAiTasks }: DashboardProps)
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle>目标差距看板</CardTitle>
-            <Badge className="border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-100">
-              按7月1日前一轮估算
+            <Badge className={phaseMeta[phase].badgeClass}>
+              {phaseMeta[phase].label}
             </Badge>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -410,7 +422,10 @@ export function Dashboard({ state, onNavigate, onApplyAiTasks }: DashboardProps)
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <div>
               <CardTitle>今日任务概览</CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">显示当天全部任务，共 {totalTasks} 项</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                显示当天全部任务，共 {totalTasks} 项
+                {savedAtText ? `，已保存 ${savedAtText}` : "，尚未保存"}
+              </p>
             </div>
             <Button size="sm" onClick={() => onNavigate("checkin")}>
               去打卡
@@ -439,27 +454,49 @@ export function Dashboard({ state, onNavigate, onApplyAiTasks }: DashboardProps)
                       }
                     />
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {stat.completed}/{stat.total}项，{(stat.minutes / 60).toFixed(1)}小时
+                      {stat.completed}完/{stat.partial}部分/{stat.total}项，{(stat.minutes / 60).toFixed(1)}小时
                     </p>
                   </div>
                 ))}
             </div>
             <div className="space-y-2">
-              {todayTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className={`flex items-center gap-3 rounded-lg border border-border border-l-4 p-3 text-sm ${
-                    subjectMeta[task.subject].borderClass
-                  } ${task.completed ? "bg-emerald-50/70 dark:bg-emerald-950/20" : "bg-card"}`}
-                >
-                  <CheckCircle2 className={task.completed ? "h-4 w-4 text-emerald-600" : "h-4 w-4 text-muted-foreground"} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{task.title}</p>
-                    <p className="text-xs text-muted-foreground">{task.time}</p>
-                  </div>
-                  <Badge className={subjectMeta[task.subject].badgeClass}>{subjectMeta[task.subject].shortName}</Badge>
+              {todayTasks.length === 0 ? (
+                <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
+                  今天还没有任务，去每日打卡页生成今日任务后这里会同步显示。
                 </div>
-              ))}
+              ) : (
+                todayTasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className={`flex items-center gap-3 rounded-lg border border-border border-l-4 p-3 text-sm ${
+                      subjectMeta[task.subject].borderClass
+                    } ${
+                      isTaskDone(task)
+                        ? "bg-emerald-50/70 dark:bg-emerald-950/20"
+                        : isTaskPartial(task)
+                          ? "bg-amber-50/70 dark:bg-amber-950/20"
+                          : "bg-card"
+                    }`}
+                  >
+                    <CheckCircle2 className={isTaskDone(task) ? "h-4 w-4 text-emerald-600" : isTaskPartial(task) ? "h-4 w-4 text-amber-600" : "h-4 w-4 text-muted-foreground"} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{task.title}</p>
+                      <p className="text-xs text-muted-foreground">{task.time}</p>
+                    </div>
+                    <Badge
+                      className={
+                        isTaskDone(task)
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100"
+                          : isTaskPartial(task)
+                            ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+                            : subjectMeta[task.subject].badgeClass
+                      }
+                    >
+                      {getTaskStatus(task) === "done" ? "已完成" : getTaskStatus(task) === "partial" ? "部分完成" : subjectMeta[task.subject].shortName}
+                    </Badge>
+                  </div>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>

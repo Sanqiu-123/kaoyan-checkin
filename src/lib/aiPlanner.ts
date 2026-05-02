@@ -26,7 +26,8 @@ function buildPlanningPayload(state: AppState) {
     progress: state.progress,
     settings: {
       targetDate: state.settings.targetDate,
-      dailyStudyHours: state.settings.dailyStudyHours
+      dailyStudyHours: state.settings.dailyStudyHours,
+      studyPhase: state.settings.studyPhase
     },
     records: Object.fromEntries(recentRecords),
     weakPoints: state.weakPoints.filter((item) => item.status !== "已掌握").slice(0, 20),

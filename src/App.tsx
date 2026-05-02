@@ -9,14 +9,15 @@ import { StatsPage } from "@/components/StatsPage";
 import { WeakPointsPage } from "@/components/WeakPointsPage";
 import { PlanWorkspacePage } from "@/components/PlanWorkspacePage";
 import { AppState, CustomStudyPlan, DailyRecord, ProgressState, Settings, StudyTask, WeakPoint } from "@/types/study";
-import { todayKey } from "@/lib/date";
+import { addDays, todayKey } from "@/lib/date";
 import {
   applyProgressFromRecord,
   createInitialState,
   ensureTodayRecord,
   extractWeakPointsFromRecord,
   generateDailyRecord,
-  generateSuggestion
+  generateSuggestion,
+  isTaskDone
 } from "@/lib/studyData";
 import { deletePersistedState, loadPersistedState, parseBackup, savePersistedState, serializeBackup } from "@/lib/storage";
 import {
@@ -46,11 +47,13 @@ function isUntouchedGeneratedRecord(record?: DailyRecord) {
   );
 }
 
-function refreshTodayPlanIfUntouched(state: AppState) {
-  const date = todayKey();
-  const currentRecord = state.records[date];
-  if (currentRecord && !isUntouchedGeneratedRecord(currentRecord)) return state;
+function shouldRefreshGeneratedRecord(record: DailyRecord | undefined, createIfMissing = false) {
+  if (!record) return createIfMissing;
+  return isUntouchedGeneratedRecord(record);
+}
 
+function refreshGeneratedRecord(state: AppState, date: string, createIfMissing = false) {
+  if (!shouldRefreshGeneratedRecord(state.records[date], createIfMissing)) return state;
   return {
     ...state,
     records: {
@@ -58,6 +61,49 @@ function refreshTodayPlanIfUntouched(state: AppState) {
       [date]: generateDailyRecord(date, state)
     }
   };
+}
+
+function refreshTodayPlanIfUntouched(state: AppState) {
+  return refreshGeneratedRecord(state, todayKey(), true);
+}
+
+function getCompletedTaskIds(record: DailyRecord) {
+  return record.tasks.filter(isTaskDone).map((task) => task.id);
+}
+
+function getProgressTasksForSave(record: DailyRecord, firstSave: boolean) {
+  if (firstSave) return record.tasks;
+
+  const pendingIds = new Set(record.pendingProgressTaskIds ?? []);
+  const appliedIds = new Set(record.progressAppliedTaskIds ?? []);
+  const hasProgressMetadata = Boolean(record.progressAppliedTaskIds);
+  const dirtySinceLastSave = Boolean(record.savedAt && record.updatedAt > record.savedAt);
+
+  if (!hasProgressMetadata && dirtySinceLastSave) {
+    if (pendingIds.size > 0) {
+      return record.tasks.filter((task) => isTaskDone(task) && pendingIds.has(task.id));
+    }
+    return record.tasks;
+  }
+
+  return record.tasks.filter((task) => isTaskDone(task) && pendingIds.has(task.id) && !appliedIds.has(task.id));
+}
+
+function getNextProgressAppliedTaskIds(record: DailyRecord, firstSave: boolean, appliedTaskIds: string[]) {
+  const hasProgressMetadata = Boolean(record.progressAppliedTaskIds);
+  const dirtySinceLastSave = Boolean(record.savedAt && record.updatedAt > record.savedAt);
+  const completedIds = getCompletedTaskIds(record);
+  const nextIds = new Set(record.progressAppliedTaskIds ?? []);
+
+  if (firstSave || (!hasProgressMetadata && dirtySinceLastSave)) {
+    completedIds.forEach((id) => nextIds.add(id));
+  } else if (!hasProgressMetadata) {
+    completedIds.forEach((id) => nextIds.add(id));
+  } else {
+    appliedTaskIds.forEach((id) => nextIds.add(id));
+  }
+
+  return [...nextIds];
 }
 
 export default function App() {
@@ -152,35 +198,60 @@ export default function App() {
     });
   }
 
+  function regenerateRecordForDate(date: string) {
+    setState((current) => ({
+      ...current,
+      records: {
+        ...current.records,
+        [date]: generateDailyRecord(date, current)
+      }
+    }));
+  }
+
   function saveCheckin(date = checkinDate) {
     setState((current) => {
       const currentRecord = current.records[date];
       if (!currentRecord) return current;
 
+      const now = new Date().toISOString();
       const suggestion = generateSuggestion(currentRecord);
       const firstSave = !currentRecord.savedAt;
-      const savedRecord: DailyRecord = {
+      const draftSavedRecord: DailyRecord = {
         ...currentRecord,
         suggestion,
-        savedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        phase: currentRecord.phase ?? current.settings.studyPhase,
+        savedAt: now,
+        updatedAt: now
+      };
+      const progressTasks = getProgressTasksForSave(currentRecord, firstSave);
+      const appliedTaskIds = progressTasks.filter(isTaskDone).map((task) => task.id);
+      const savedRecord: DailyRecord = {
+        ...draftSavedRecord,
+        progressAppliedTaskIds: getNextProgressAppliedTaskIds(currentRecord, firstSave, appliedTaskIds),
+        pendingProgressTaskIds: []
       };
       const newWeakPoints = extractWeakPointsFromRecord(savedRecord, current.weakPoints);
-      const nextProgress = firstSave ? applyProgressFromRecord(current.progress, savedRecord) : current.progress;
+      const nextProgress =
+        progressTasks.length > 0
+          ? applyProgressFromRecord(current.progress, { ...savedRecord, tasks: progressTasks })
+          : current.progress;
       const nextWeakPoints = [...newWeakPoints, ...current.weakPoints].slice(0, 200);
-      let nextRecords = {
+      const nextRecords = {
         ...current.records,
         [date]: savedRecord
       };
-      const nextAdjustmentLogs = [
-        {
-          id: uid("log"),
-          date,
-          message: suggestion,
-          createdAt: new Date().toISOString()
-        },
-        ...current.adjustmentLogs
-      ].slice(0, 80);
+      const shouldLogSuggestion = firstSave || suggestion !== currentRecord.suggestion;
+      const nextAdjustmentLogs = shouldLogSuggestion
+        ? [
+            {
+              id: uid("log"),
+              date,
+              message: suggestion,
+              createdAt: now
+            },
+            ...current.adjustmentLogs
+          ].slice(0, 80)
+        : current.adjustmentLogs;
 
       const baseNextState: AppState = {
         ...current,
@@ -190,17 +261,20 @@ export default function App() {
         weakPoints: nextWeakPoints
       };
 
-      if (date !== today && isUntouchedGeneratedRecord(nextRecords[today])) {
-        nextRecords = {
-          ...nextRecords,
-          [today]: generateDailyRecord(today, baseNextState)
-        };
+      const refreshTargets = new Map<string, boolean>();
+      const nextDate = addDays(date, 1);
+      refreshTargets.set(nextDate, nextDate === today);
+      refreshTargets.set(today, true);
+
+      let nextState = baseNextState;
+      for (const [refreshDate, createIfMissing] of [...refreshTargets.entries()].sort(([a], [b]) =>
+        a.localeCompare(b)
+      )) {
+        if (refreshDate === date) continue;
+        nextState = refreshGeneratedRecord(nextState, refreshDate, createIfMissing);
       }
 
-      return {
-        ...baseNextState,
-        records: nextRecords
-      };
+      return nextState;
     });
   }
 
@@ -241,11 +315,11 @@ export default function App() {
   }
 
   function updateProgress(progress: ProgressState) {
-    setState((current) => ({ ...current, progress }));
+    setState((current) => refreshGeneratedRecord({ ...current, progress }, today, true));
   }
 
   function updateSettings(settings: Settings) {
-    setState((current) => ({ ...current, settings }));
+    setState((current) => refreshGeneratedRecord({ ...current, settings }, today, true));
   }
 
   function updateCloudSync(patch: Partial<AppState["cloudSync"]>) {
@@ -423,12 +497,15 @@ export default function App() {
             ensureRecordForDate(date);
           }}
           onCreateRecord={() => ensureRecordForDate(checkinDate)}
+          onRegenerateRecord={() => regenerateRecordForDate(checkinDate)}
           onChange={(record) => updateRecord(checkinDate, record)}
           onSave={() => saveCheckin(checkinDate)}
         />
       )}
       {activePage === "history" && <HistoryPage state={state} />}
-      {activePage === "progress" && <ProgressPage progress={state.progress} onChange={updateProgress} />}
+      {activePage === "progress" && (
+        <ProgressPage state={state} onProgressChange={updateProgress} onSettingsChange={updateSettings} />
+      )}
       {activePage === "weakness" && <WeakPointsPage state={state} onChange={updateWeakPoints} />}
       {activePage === "stats" && <StatsPage state={state} />}
       {activePage === "plans" && <PlanWorkspacePage plans={state.customPlans} onChange={updateCustomPlans} onNavigate={setActivePage} />}

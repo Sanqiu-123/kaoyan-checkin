@@ -1,17 +1,17 @@
-import { BookMarked, CheckCircle2 } from "lucide-react";
+import { BookMarked, CheckCircle2, Flag, Layers3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { ProgressState } from "@/types/study";
-import { getOverallProgress, getPlanStatus, stagePlans, subjectMeta } from "@/lib/studyData";
-import { getCurriculumFocuses } from "@/lib/curriculum";
+import { AppState, ProgressState, Settings, StudyPhase } from "@/types/study";
+import { getDailyFocusCards, getOverallProgress, getPlanStatus, phaseMeta, stagePlans, subjectMeta } from "@/lib/studyData";
 import { todayKey } from "@/lib/date";
 
 interface ProgressPageProps {
-  progress: ProgressState;
-  onChange: (progress: ProgressState) => void;
+  state: AppState;
+  onProgressChange: (progress: ProgressState) => void;
+  onSettingsChange: (settings: Settings) => void;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -23,17 +23,64 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function ProgressPage({ progress, onChange }: ProgressPageProps) {
+const phaseOptions: StudyPhase[] = ["first", "second", "sprint"];
+
+export function ProgressPage({ state, onProgressChange, onSettingsChange }: ProgressPageProps) {
+  const { progress, settings } = state;
   const summary = getOverallProgress(progress);
-  const planStatus = getPlanStatus(progress);
-  const curriculumFocuses = getCurriculumFocuses(progress, todayKey());
+  const planStatus = getPlanStatus(progress, todayKey(), settings.studyPhase);
+  const focusCards = getDailyFocusCards(state, todayKey());
+
+  function onChange(nextProgress: ProgressState) {
+    onProgressChange(nextProgress);
+  }
+
+  function updateSettings(patch: Partial<Settings>) {
+    onSettingsChange({ ...settings, ...patch });
+  }
 
   return (
     <div className="page-shell">
       <div>
         <h2 className="text-2xl font-semibold">进度管理</h2>
-        <p className="mt-1 text-sm text-muted-foreground">维护一轮复习进度，系统会用这些信息生成后续每日任务。</p>
+        <p className="mt-1 text-sm text-muted-foreground">当前阶段：{phaseMeta[settings.studyPhase].label}，系统会按阶段生成每日任务。</p>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Layers3 className="h-5 w-5 text-primary" />
+              复习阶段
+            </CardTitle>
+            <p className="mt-2 text-sm text-muted-foreground">{phaseMeta[settings.studyPhase].description}</p>
+          </div>
+          <Badge className={phaseMeta[settings.studyPhase].badgeClass}>{phaseMeta[settings.studyPhase].shortLabel}</Badge>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          {phaseOptions.map((phase) => {
+            const active = settings.studyPhase === phase;
+            return (
+              <button
+                key={phase}
+                type="button"
+                onClick={() => updateSettings({ studyPhase: phase })}
+                className={
+                  active
+                    ? "rounded-lg border border-primary bg-primary/10 p-3 text-left ring-2 ring-primary/20"
+                    : "rounded-lg border border-border bg-card p-3 text-left hover:bg-muted/50"
+                }
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">{phaseMeta[phase].label}</span>
+                  {active && <CheckCircle2 className="h-4 w-4 text-primary" />}
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">{phaseMeta[phase].description}</p>
+              </button>
+            );
+          })}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-4">
         {[
@@ -54,10 +101,10 @@ export function ProgressPage({ progress, onChange }: ProgressPageProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>当前教材级焦点</CardTitle>
+          <CardTitle>{settings.studyPhase === "first" ? "当前教材级焦点" : "当前强化焦点"}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 lg:grid-cols-3">
-          {curriculumFocuses.map((focus) => (
+          {focusCards.map((focus) => (
             <div key={focus.id} className={`rounded-lg border border-border border-l-4 p-3 ${subjectMeta[focus.subject].borderClass}`}>
               <div className="flex items-center justify-between gap-2">
                 <Badge className={subjectMeta[focus.subject].badgeClass}>{subjectMeta[focus.subject].name}</Badge>
@@ -419,13 +466,16 @@ export function ProgressPage({ progress, onChange }: ProgressPageProps) {
 
         <Card>
           <CardHeader>
-            <CardTitle>一轮复习阶段计划</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Flag className="h-5 w-5 text-primary" />
+              阶段复习路线
+            </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-3">
             {[
-              ["数学一", stagePlans.math],
-              ["408", stagePlans.cs408],
-              ["英语一", stagePlans.english]
+              ["数学一", stagePlans[settings.studyPhase].math],
+              ["408", stagePlans[settings.studyPhase].cs408],
+              ["英语一", stagePlans[settings.studyPhase].english]
             ].map(([title, rows]) => (
               <div key={String(title)} className="space-y-2">
                 <p className="flex items-center gap-2 font-medium">

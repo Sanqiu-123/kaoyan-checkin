@@ -2,6 +2,10 @@ export type Subject = "math" | "cs408" | "english" | "review";
 
 export type Quality = "" | "很好" | "一般" | "较差";
 
+export type StudyPhase = "first" | "second" | "sprint";
+
+export type TaskStatus = "todo" | "partial" | "done";
+
 export interface StudyTask {
   id: string;
   date: string;
@@ -10,6 +14,7 @@ export interface StudyTask {
   title: string;
   plannedMinutes: number;
   completed: boolean;
+  status?: TaskStatus;
   actualMinutes: number;
   quality: Quality;
   note: string;
@@ -22,9 +27,12 @@ export interface DailyRecord {
   summary: string;
   suggestion: string;
   adjustmentMessages: string[];
+  phase?: StudyPhase;
   createdAt: string;
   updatedAt: string;
   savedAt?: string;
+  progressAppliedTaskIds?: string[];
+  pendingProgressTaskIds?: string[];
 }
 
 export interface MathProgress {
@@ -71,6 +79,7 @@ export interface Settings {
   targetDate: string;
   dailyStudyHours: number;
   darkMode: boolean;
+  studyPhase: StudyPhase;
 }
 
 export interface CloudSyncState {
@@ -119,6 +128,8 @@ export interface SubjectStat {
   subject: Subject;
   total: number;
   completed: number;
+  partial: number;
+  todo: number;
   rate: number;
   minutes: number;
 }

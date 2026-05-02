@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { AppState } from "@/types/study";
 import { displayDate, todayKey } from "@/lib/date";
-import { getCompletionRate, getSubjectStats, getTotalMinutes, subjectMeta } from "@/lib/studyData";
+import { getCompletionRate, getSubjectStats, getTaskStatus, getTotalMinutes, subjectMeta } from "@/lib/studyData";
 import { percent } from "@/lib/utils";
 
 interface HistoryPageProps {
@@ -100,7 +100,7 @@ export function HistoryPage({ state }: HistoryPageProps) {
                         <Badge className={subjectMeta[stat.subject].badgeClass}>{subjectMeta[stat.subject].name}</Badge>
                         <p className="mt-3 text-2xl font-semibold">{percent(stat.rate)}</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          {stat.completed}/{stat.total}项，{(stat.minutes / 60).toFixed(1)}小时
+                          {stat.completed}完/{stat.partial}部分/{stat.total}项，{(stat.minutes / 60).toFixed(1)}小时
                         </p>
                       </div>
                     ))}
@@ -119,7 +119,9 @@ export function HistoryPage({ state }: HistoryPageProps) {
                     >
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                          <p className="font-medium">{task.completed ? "已完成" : "未完成"}：{task.title}</p>
+                          <p className="font-medium">
+                            {getTaskStatus(task) === "done" ? "已完成" : getTaskStatus(task) === "partial" ? "部分完成" : "未完成"}：{task.title}
+                          </p>
                           <p className="mt-1 text-sm text-muted-foreground">
                             {task.time}，实际{task.actualMinutes || 0}分钟，质量：{task.quality || "未填写"}
                           </p>
