@@ -12,6 +12,35 @@ echo Pushing kaoyan-checkin to GitHub...
 echo Repository: https://github.com/Sanqiu-123/kaoyan-checkin
 echo.
 
+echo Checking local changes...
+git status --short
+echo.
+
+echo Staging local changes...
+git add .
+if errorlevel 1 (
+  echo Failed to stage changes.
+  pause
+  popd
+  exit /b 1
+)
+
+git diff --cached --quiet
+if "%ERRORLEVEL%"=="0" (
+  echo No local file changes to commit.
+) else (
+  echo Creating commit...
+  git commit -m "Update app"
+  if errorlevel 1 (
+    echo Commit failed.
+    pause
+    popd
+    exit /b 1
+  )
+)
+
+echo.
+echo Pushing commits...
 git push -u origin main
 set "EXIT_CODE=%ERRORLEVEL%"
 
