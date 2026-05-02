@@ -294,61 +294,70 @@ export function CheckinPage({
                   isTaskPartial(task) && "bg-amber-50/70 dark:bg-amber-950/20"
                 )}
               >
-                <div className="grid gap-3 lg:grid-cols-[156px_112px_1fr_118px_96px_100px_40px] lg:items-center">
-                  <div className="grid grid-cols-3 rounded-lg border border-border bg-muted/40 p-1" aria-label="任务完成状态">
-                    {taskStatusOptions.map((option) => {
-                      const active = getTaskStatus(task) === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          title={option.title}
-                          onClick={() => updateTaskStatus(task.id, option.value)}
-                          className={cn(
-                            "h-8 rounded-md px-2 text-xs font-medium transition",
-                            active && option.value === "done" && "bg-emerald-600 text-white",
-                            active && option.value === "partial" && "bg-amber-500 text-white",
-                            active && option.value === "todo" && "bg-slate-600 text-white",
-                            !active && "text-muted-foreground hover:bg-background"
-                          )}
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
+                <div className="space-y-3">
+                  <div className="grid gap-3 xl:grid-cols-[156px_minmax(280px,1fr)_40px] xl:items-center">
+                    <div className="grid grid-cols-3 rounded-lg border border-border bg-muted/40 p-1" aria-label="任务完成状态">
+                      {taskStatusOptions.map((option) => {
+                        const active = getTaskStatus(task) === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            title={option.title}
+                            onClick={() => updateTaskStatus(task.id, option.value)}
+                            className={cn(
+                              "h-8 rounded-md px-2 text-xs font-medium transition",
+                              active && option.value === "done" && "bg-emerald-600 text-white",
+                              active && option.value === "partial" && "bg-amber-500 text-white",
+                              active && option.value === "todo" && "bg-slate-600 text-white",
+                              !active && "text-muted-foreground hover:bg-background"
+                            )}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <Input
+                      className="font-medium"
+                      value={task.title}
+                      onChange={(event) => updateTask(task.id, { title: event.target.value })}
+                      placeholder="任务内容"
+                    />
+                    <Button variant="ghost" size="icon" onClick={() => deleteTask(task.id)} title="删除任务">
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                    </Button>
                   </div>
-                  <Input value={task.time} onChange={(event) => updateTask(task.id, { time: event.target.value })} />
-                  <Input value={task.title} onChange={(event) => updateTask(task.id, { title: event.target.value })} />
-                  <Select
-                    value={task.subject}
-                    onChange={(event) => updateTask(task.id, { subject: event.target.value as Subject })}
-                  >
-                    {subjectOptions.map((subject) => (
-                      <option key={subject} value={subject}>
-                        {subjectMeta[subject].name}
-                      </option>
-                    ))}
-                  </Select>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={task.actualMinutes}
-                    onChange={(event) => updateTask(task.id, { actualMinutes: Number(event.target.value) })}
-                    title="实际学习分钟数"
-                  />
-                  <Select
-                    value={task.quality}
-                    onChange={(event) => updateTask(task.id, { quality: event.target.value as Quality })}
-                  >
-                    {qualityOptions.map((quality) => (
-                      <option key={quality || "empty"} value={quality}>
-                        {quality || "质量"}
-                      </option>
-                    ))}
-                  </Select>
-                  <Button variant="ghost" size="icon" onClick={() => deleteTask(task.id)} title="删除任务">
-                    <Trash2 className="h-4 w-4 text-muted-foreground" />
-                  </Button>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[112px_150px_110px_120px]">
+                    <Input value={task.time} onChange={(event) => updateTask(task.id, { time: event.target.value })} />
+                    <Select
+                      value={task.subject}
+                      onChange={(event) => updateTask(task.id, { subject: event.target.value as Subject })}
+                    >
+                      {subjectOptions.map((subject) => (
+                        <option key={subject} value={subject}>
+                          {subjectMeta[subject].name}
+                        </option>
+                      ))}
+                    </Select>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={task.actualMinutes}
+                      onChange={(event) => updateTask(task.id, { actualMinutes: Number(event.target.value) })}
+                      title="实际学习分钟数"
+                    />
+                    <Select
+                      value={task.quality}
+                      onChange={(event) => updateTask(task.id, { quality: event.target.value as Quality })}
+                    >
+                      {qualityOptions.map((quality) => (
+                        <option key={quality || "empty"} value={quality}>
+                          {quality || "质量"}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                 </div>
                 <Input
                   className="mt-3"
